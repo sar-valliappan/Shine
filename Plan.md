@@ -355,10 +355,14 @@ export function getAuthUrl(): string {
 export type WorkspaceAction =
   | { action: 'create_document';    title: string; content_prompt: string; sections: string[] }
   | { action: 'create_spreadsheet'; title: string; headers: string[]; rows: any[][]; include_formulas: boolean }
+  | { action: 'create_presentation'; title: string; slide_prompts: string[] }
+  | { action: 'create_event';       summary: string; start_time: string; end_time: string; location?: string; description?: string }
+  | { action: 'create_form';        title: string; questions: { title: string; type: 'TEXT' | 'MULTIPLE_CHOICE' }[] }
+  | { action: 'create_draft';       to: string; subject: string; body_prompt: string }
+  | { action: 'send_email';         to: string; subject: string; body_prompt: string }
   | { action: 'list_files';         query?: string; limit: number }
   | { action: 'search_drive';       query: string }
-  | { action: 'create_draft';       to: string; subject: string; body_prompt: string }
-  | { action: 'clarify';            question: string }
+  | { action: 'clarify';            question: string };
 ```
 
 ### Gemini Function Definitions
@@ -428,6 +432,71 @@ const workspaceFunctions = [
         body_prompt: { type: 'string', description: 'Prompt describing what the email should say' },
       },
       required: ['to', 'subject', 'body_prompt'],
+    },
+  },
+  {
+    name: 'create_presentation',
+    description: 'Creates a Google Slides presentation with AI-generated slide outlines',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        slide_prompts: { 
+          type: 'array', 
+          items: { type: 'string' }, 
+          description: 'A list of prompts describing what each slide should contain' 
+        },
+      },
+      required: ['title', 'slide_prompts'],
+    },
+  },
+  {
+    name: 'create_event',
+    description: 'Schedules a new event on Google Calendar',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'The title of the event' },
+        start_time: { type: 'string', description: 'ISO 8601 format date-time string' },
+        end_time: { type: 'string', description: 'ISO 8601 format date-time string' },
+        location: { type: 'string' },
+        description: { type: 'string', description: 'Notes or agenda for the meeting' },
+      },
+      required: ['summary', 'start_time', 'end_time'],
+    },
+  },
+  {
+    name: 'send_email',
+    description: 'Sends an email draft via Gmail',
+    parameters: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string' },
+        body_prompt: { type: 'string', description: 'Prompt for generating the email message content' },
+      },
+      required: ['to', 'subject', 'body_prompt'],
+    },
+  },
+  {
+    name: 'create_form',
+    description: 'Creates a Google Form for surveys or data collection',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        questions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              type: { type: 'string', enum: ['TEXT', 'MULTIPLE_CHOICE'] }
+            }
+          }
+        }
+      },
+      required: ['title', 'questions'],
     },
   },
   {
