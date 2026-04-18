@@ -6,6 +6,9 @@ import docsRoutes from './routes/docs.js';
 import sheetsRoutes from './routes/sheets.js';
 import driveRoutes from './routes/drive.js';
 import gmailRoutes from './routes/gmail.js';
+import slidesRoutes from './routes/slides.js';
+import calendarRoutes from './routes/calendar.js';
+import formsRoutes from './routes/forms.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -41,6 +44,9 @@ app.use('/api/docs', docsRoutes);
 app.use('/api/sheets', sheetsRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/gmail', gmailRoutes);
+app.use('/api/slides', slidesRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/forms', formsRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
