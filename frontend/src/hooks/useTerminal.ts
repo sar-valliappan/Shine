@@ -6,7 +6,7 @@ export interface WorkspaceResult {
   title?: string;
   url?: string;
   summary?: string;
-  fileType: 'doc' | 'sheet' | 'drive' | 'slides' | 'calendar' | 'form' | 'gmail' | 'list';
+  fileType: 'doc' | 'sheet' | 'drive' | 'slides' | 'calendar' | 'form' | 'gmail' | 'list' | 'system';
   items?: any[];
 }
 

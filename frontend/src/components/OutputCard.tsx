@@ -6,7 +6,8 @@ import {
   Mail, 
   Presentation, 
   Calendar as CalendarIcon,
-  CheckSquare
+  CheckSquare,
+  Info
 } from 'lucide-react';
 
 interface Props {
@@ -21,7 +22,8 @@ const iconMap = {
   slides: <Presentation className="w-5 h-5 text-orange-400" />,
   calendar: <CalendarIcon className="w-5 h-5 text-indigo-400" />,
   form: <CheckSquare className="w-5 h-5 text-purple-400" />,
-  list: <HardDrive className="w-5 h-5 text-yellow-400" />
+  list: <HardDrive className="w-5 h-5 text-yellow-400" />,
+  system: <Info className="w-5 h-5 text-gray-300" />
 };
 
 export function OutputCard({ result }: Props) {
