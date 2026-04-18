@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useCommandHistory } from '../hooks/useCommandHistory';
 import { CommandBlock } from './CommandBlock';
-import { mockParseCommand } from '../services/api'; // We will create this
+import { parseCommand } from '../services/api';
 import { playAudioReadback } from '../services/elevenlabs';
 
 export function Terminal() {
@@ -33,8 +33,7 @@ export function Terminal() {
       const blockId = addBlock(cmd);
       
       try {
-        // Mock API call for now
-        const result = await mockParseCommand(cmd);
+        const result = await parseCommand(cmd);
         updateBlockSuccess(blockId, result);
         
         if (result.summary) {
