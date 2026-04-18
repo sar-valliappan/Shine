@@ -27,7 +27,30 @@ export type WorkspaceAction =
 	| { action: 'send_email'; to: string; subject: string; body_prompt: string }
 	| { action: 'list_files'; query?: string; limit?: number }
 	| { action: 'search_drive'; query: string }
-	| { action: 'clarify'; question: string };
+	| { action: 'clarify'; question: string }
+	| {
+			action: 'edit_presentation';
+			operation: 'add_slide' | 'edit_slide' | 'delete_slide';
+			fileId?: string;
+			slide_prompt?: string;
+			slide_index?: number;
+			title?: string;
+			body?: string;
+		}
+	| {
+			action: 'edit_document';
+			operation: 'add_section';
+			fileId?: string;
+			heading: string;
+			content_prompt: string;
+		}
+	| {
+			action: 'edit_spreadsheet';
+			operation: 'add_row' | 'add_column';
+			fileId?: string;
+			row?: string[];
+			header?: string;
+		};
 
 export type ParseResult = {
 	action: WorkspaceAction;

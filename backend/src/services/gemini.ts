@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
+import type { ActiveFile } from './sessionContext.js';
 
 const DEFAULT_MODEL_CANDIDATES = [
 	'gemini-2.0-flash',
@@ -242,14 +243,28 @@ function fallbackAction(command: string): WorkspaceAction {
 	};
 }
 
-export async function parseCommandWithGemini(command: string): Promise<ParseResult> {
+export async function parseCommandWithGemini(
+	command: string,
+	context?: { activeFile?: ActiveFile | null },
+): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) {
 		return { action: fallbackAction(command), rawText: 'GEMINI_API_KEY not configured' };
 	}
 
 	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${commandParserPrompt}\n\nUser command:\n${command}`;
+
+	let contextBlock = '';
+	if (context?.activeFile) {
+		const f = context.activeFile;
+		contextBlock = `\n\nActive file context — the user is currently working on:
+Type: ${f.type}
+Title: "${f.title}"
+ID: ${f.id}
+If the command refers to editing, modifying, or adding to this file, use the matching edit action (edit_presentation, edit_document, or edit_spreadsheet).`;
+	}
+
+	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel
