@@ -27,7 +27,7 @@ const workspaceFunctions: FunctionDeclaration[] = [
       properties: {
         title: { type: SchemaType.STRING },
         headers: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: 'Column header names' },
-        rows: { type: SchemaType.ARRAY, items: { type: SchemaType.ARRAY }, description: 'Array of data rows' },
+        rows: { type: SchemaType.ARRAY, items: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }, description: 'Array of data rows, each row is an array of cell values as strings' },
         include_formulas: { type: SchemaType.BOOLEAN, description: 'Whether to append SUM/formula rows' },
       },
       required: ['title', 'headers', 'rows'],
@@ -149,7 +149,7 @@ const workspaceFunctions: FunctionDeclaration[] = [
 ];
 
 const model = genAI.getGenerativeModel({
-  model: 'gemini-1.5-flash',
+  model: 'gemini-2.0-flash-lite',
   systemInstruction: commandParserSystemPrompt,
   tools: [{ functionDeclarations: workspaceFunctions }],
   toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY } },
