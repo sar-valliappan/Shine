@@ -1,4 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  parseCommand as parseWorkspaceCommand,
+  getAuthStatus,
+  getGoogleAuthUrl,
+} from '../services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type AppKey = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'sites' | 'classroom' | 'drive';
@@ -149,28 +154,6 @@ function seedFormContent(topic: string): FormsContent {
     ],
   };
 }
-function seedSitesContent(topic: string): SitesContent {
-  return {
-    title: titleCase(topic),
-    blocks: [
-      { kind: 'hero', title: titleCase(topic), body: 'The home for our work.' },
-      { kind: 'grid', items: ['Onboarding', 'Runbooks', 'Rituals', 'Directory'] },
-      { kind: 'text', title: 'This week', body: 'Mon sync · Wed demo · Fri retro' },
-    ],
-  };
-}
-function seedClassroomContent(topic: string): ClassroomContent {
-  return {
-    title: titleCase(topic),
-    section: 'Spring 2026',
-    assignments: [
-      { title: 'Reading · chapter 4', due: 'apr 22', points: 20 },
-      { title: 'Problem set 3', due: 'apr 25', points: 50 },
-      { title: 'Group project draft', due: 'apr 30', points: 100 },
-    ],
-    students: 24,
-  };
-}
 function seedDriveContent(): DriveContent {
   return {
     items: [
@@ -193,7 +176,6 @@ type ParseResult =
   | { type: 'close' }
   | { type: 'open' }
   | { type: 'ls' }
-  | { type: 'create'; app: AppKey; topic: string; extra?: { to: string } }
   | { type: 'edit'; op: string; value: string };
 
 const GLOBAL_CMDS: { test: RegExp; run: (m: RegExpMatchArray) => ParseResult }[] = [
@@ -202,15 +184,6 @@ const GLOBAL_CMDS: { test: RegExp; run: (m: RegExpMatchArray) => ParseResult }[]
   { test: /^(exit|close|quit)$/i, run: () => ({ type: 'close' }) },
   { test: /^open$/i, run: () => ({ type: 'open' }) },
   { test: /^ls$/i, run: () => ({ type: 'ls' }) },
-  { test: /^(create|new|make)\s+(a\s+)?(doc|document)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'docs', topic: (m[5] || 'untitled').trim() || 'untitled' }) },
-  { test: /^(create|new|make)\s+(a\s+)?(sheet|spreadsheet)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'sheets', topic: (m[5] || 'untitled').trim() || 'untitled' }) },
-  { test: /^(create|new|make)\s+(a\s+)?(slides?|deck|presentation)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'slides', topic: (m[5] || 'untitled').trim() || 'untitled' }) },
-  { test: /^(draft|compose|write|send)\s+(an?\s+)?(email|mail|message)\s*(to\s+(\S+))?\s*(about|re|regarding)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'gmail', topic: (m[7] || 'quick note').trim() || 'quick note', extra: { to: m[5] || 'team@company.com' } }) },
-  { test: /^(create|new|make)\s+(a\s+)?(form|survey)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'forms', topic: (m[5] || 'survey').trim() || 'survey' }) },
-  { test: /^(create|new|make)\s+(a\s+)?(classroom|class)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'classroom', topic: (m[5] || 'new class').trim() || 'new class' }) },
-  { test: /^(create|new|make)\s+(a\s+)?(site|website|sites?)\s*(for|about|on|titled|called)?\s*(.*)?$/i, run: (m) => ({ type: 'create', app: 'sites', topic: (m[5] || 'team site').trim() || 'team site' }) },
-  { test: /^(open\s+)?drive$/i, run: () => ({ type: 'create', app: 'drive', topic: 'drive' }) },
-  { test: /^(list|show|recent)\s+(my\s+)?(files?|drive)$/i, run: () => ({ type: 'create', app: 'drive', topic: 'drive' }) },
 ];
 
 function parseContextCmd(input: string, app: AppKey): ParseResult | null {
@@ -236,7 +209,7 @@ function parseContextCmd(input: string, app: AppKey): ParseResult | null {
   return null;
 }
 
-function parseCommand(input: string, openApp: AppKey | undefined): ParseResult | null {
+function parseLocalCommand(input: string, openApp: AppKey | undefined): ParseResult | null {
   for (const c of GLOBAL_CMDS) {
     const m = input.match(c.test);
     if (m) return c.run(m);
@@ -246,6 +219,60 @@ function parseCommand(input: string, openApp: AppKey | undefined): ParseResult |
     if (ctx) return ctx;
   }
   return null;
+}
+
+function appFromFileType(fileType: string | undefined): AppKey | null {
+  if (!fileType) return null;
+  if (fileType === 'doc') return 'docs';
+  if (fileType === 'sheet') return 'sheets';
+  if (fileType === 'slides') return 'slides';
+  if (fileType === 'gmail') return 'gmail';
+  if (fileType === 'form') return 'forms';
+  if (fileType === 'drive' || fileType === 'list') return 'drive';
+  return null;
+}
+
+function docFromWorkspaceResult(result: any, input: string): DocState | null {
+  const app = appFromFileType(result?.fileType);
+  if (!app) return null;
+
+  const title = (result?.title || result?.summary || input || 'untitled').toString();
+  const normalizedTitle = titleCase(title);
+
+  if (app === 'drive') {
+    const items = Array.isArray(result?.items)
+      ? result.items.map((item: any) => ({
+          name: item?.name || item?.title || 'untitled',
+          kind: item?.mimeType?.includes('spreadsheet')
+            ? 'sheets'
+            : item?.mimeType?.includes('presentation')
+              ? 'slides'
+              : item?.mimeType?.includes('document')
+                ? 'docs'
+                : 'drive',
+          modified: item?.modifiedTime ? 'recently' : 'unknown',
+        }))
+      : seedDriveContent().items;
+
+    return {
+      app: 'drive',
+      title: 'Drive files',
+      slug: 'drive',
+      content: { items },
+    };
+  }
+
+  if (app === 'docs') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedDocContent(normalizedTitle) };
+  if (app === 'sheets') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedSheetContent(normalizedTitle) };
+  if (app === 'slides') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedSlidesContent(normalizedTitle) };
+  if (app === 'forms') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedFormContent(normalizedTitle) };
+
+  return {
+    app: 'gmail',
+    title: normalizedTitle,
+    slug: slug(normalizedTitle),
+    content: seedGmailContent(normalizedTitle),
+  };
 }
 
 function buildPath(openDoc: DocState | null): string {
@@ -658,6 +685,8 @@ export function Terminal() {
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [showTweaks, setShowTweaks] = useState(false);
   const [openDoc, setOpenDoc] = useState<DocState | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -678,23 +707,28 @@ export function Terminal() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    getAuthStatus()
+      .then((ok) => {
+        if (!mounted) return;
+        setIsAuthenticated(ok);
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setIsAuthenticated(false);
+        setAuthChecked(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const pushBlock = (b: Block) => setBlocks((prev) => [...prev, b]);
   const updateBlock = (id: string, patch: Partial<Block>) =>
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-
-  const createDoc = (app: AppKey, topic: string, extra?: { to: string }): DocState => {
-    const title = titleCase(topic);
-    let content: unknown;
-    if (app === 'docs') content = seedDocContent(topic);
-    else if (app === 'sheets') content = seedSheetContent(topic);
-    else if (app === 'slides') content = seedSlidesContent(topic);
-    else if (app === 'gmail') content = seedGmailContent(topic, extra?.to);
-    else if (app === 'forms') content = seedFormContent(topic);
-    else if (app === 'sites') content = seedSitesContent(topic);
-    else if (app === 'classroom') content = seedClassroomContent(topic);
-    else content = seedDriveContent();
-    return { app, title, slug: slug(topic), content };
-  };
 
   const applyEdit = (op: string, value: string, currentOpen: DocState): [DocState | null, string | null] => {
     const d = { ...currentOpen };
@@ -764,41 +798,77 @@ export function Terminal() {
     const id = Date.now() + '-' + Math.random().toString(36).slice(2, 6);
     pushBlock({ id, input: cmd, status: 'loading', ctxDoc: currentOpen, promptAccent });
     await new Promise((r) => setTimeout(r, 360 + Math.random() * 260));
-    const parsed = parseCommand(cmd, currentOpen?.app);
-    if (!parsed) { updateBlock(id, { status: 'error', error: `couldn't parse "${cmd}" — try: help` }); return; }
-    if (parsed.type === 'clear') { setBlocks([]); return; }
-    if (parsed.type === 'help') { updateBlock(id, { status: 'success', kind: 'help' }); return; }
-    if (parsed.type === 'close') {
+    if (/^(login|signin|sign-in|auth)$/i.test(cmd)) {
+      updateBlock(id, { status: 'success', kind: 'ack', msg: 'opening google login...', ackAccent: '#34A853' });
+      window.location.href = getGoogleAuthUrl();
+      return;
+    }
+
+    if (/^(status|auth status)$/i.test(cmd)) {
+      const ok = await getAuthStatus();
+      setIsAuthenticated(ok);
+      updateBlock(id, {
+        status: 'success',
+        kind: 'ack',
+        msg: ok ? 'authenticated with google' : 'not authenticated. run: login',
+        ackAccent: ok ? '#34A853' : '#EA4335',
+      });
+      return;
+    }
+
+    const parsed = parseLocalCommand(cmd, currentOpen?.app);
+    if (parsed?.type === 'clear') { setBlocks([]); return; }
+    if (parsed?.type === 'help') { updateBlock(id, { status: 'success', kind: 'help' }); return; }
+    if (parsed?.type === 'close') {
       if (!currentOpen) { updateBlock(id, { status: 'error', error: 'nothing to close' }); return; }
       setOpenDoc(null);
       updateBlock(id, { status: 'success', kind: 'ack', msg: `closed ${currentOpen.title.toLowerCase()}`, ackAccent: promptAccent });
       return;
     }
-    if (parsed.type === 'open') {
+    if (parsed?.type === 'open') {
       if (!currentOpen) { updateBlock(id, { status: 'error', error: 'nothing open — create something first' }); return; }
       updateBlock(id, { status: 'success', kind: 'ack', msg: `opened in ${APPS[currentOpen.app].label}.google.com`, ackAccent: promptAccent });
       return;
     }
-    if (parsed.type === 'ls') {
+    if (parsed?.type === 'ls') {
       updateBlock(id, { status: 'success', kind: 'ack', msg: currentOpen ? currentOpen.title + '.' + APPS[currentOpen.app].ext : 'no open files', ackAccent: promptAccent });
       return;
     }
-    if (parsed.type === 'create') {
-      const d = createDoc(parsed.app, parsed.topic, parsed.extra);
-      setOpenDoc(d);
-      const newAccent = accentFor(d.app);
-      updateBlock(id, { status: 'success', kind: 'ack', msg: `opened ${APPS[d.app].label}${d.app === 'drive' ? '' : ` · ${d.title.toLowerCase()}`}`, ackAccent: newAccent });
-      return;
-    }
-    if (parsed.type === 'edit') {
+    if (parsed?.type === 'edit') {
       if (!currentOpen) { updateBlock(id, { status: 'error', error: 'no open app to edit' }); return; }
       const [newDoc, msg] = applyEdit(parsed.op, parsed.value, currentOpen);
       if (newDoc && msg) { setOpenDoc(newDoc); updateBlock(id, { status: 'success', kind: 'ack', msg, ackAccent: promptAccent }); }
       else updateBlock(id, { status: 'error', error: `can't do "${parsed.op}" in ${currentOpen.app}` });
       return;
     }
+
+    if (!authChecked || !isAuthenticated) {
+      updateBlock(id, { status: 'error', error: 'not authenticated. run: login' });
+      return;
+    }
+
+    try {
+      const result = await parseWorkspaceCommand(cmd);
+      const nextDoc = docFromWorkspaceResult(result, cmd);
+      if (nextDoc) setOpenDoc(nextDoc);
+      const ackAccent = nextDoc ? accentFor(nextDoc.app) : '#34A853';
+      updateBlock(id, {
+        status: 'success',
+        kind: 'ack',
+        msg: result?.summary || `completed ${result?.action || 'request'}`,
+        ackAccent,
+      });
+    } catch (error: any) {
+      const msg = String(error?.message || 'request failed');
+      if (/401|unauthorized|not authenticated/i.test(msg)) {
+        setIsAuthenticated(false);
+        updateBlock(id, { status: 'error', error: 'session expired. run: login' });
+        return;
+      }
+      updateBlock(id, { status: 'error', error: msg });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openDoc]);
+  }, [openDoc, authChecked, isAuthenticated]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') { runCommand(input); setInput(''); }
@@ -826,6 +896,12 @@ export function Terminal() {
             <div className="welcome">
               <h1 className="welcome-title" style={{ color: accent }}>welcome to shine</h1>
               <p className="welcome-sub">control your entire google workspace using natural language commands</p>
+              {authChecked && !isAuthenticated && (
+                <div className="ack err" style={{ marginTop: 10 }}>
+                  <span className="ack-check">!</span>
+                  <span className="ack-msg">google not connected. type "login" to authenticate.</span>
+                </div>
+              )}
             </div>
           )}
           {blocks.map((b) => (<CommandBlockView key={b.id} block={b} accent={accent} />))}
