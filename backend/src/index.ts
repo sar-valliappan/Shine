@@ -2,6 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
 import authRoutes from './routes/auth.js';
+import docsRoutes from './routes/docs.js';
+import sheetsRoutes from './routes/sheets.js';
+import driveRoutes from './routes/drive.js';
+import gmailRoutes from './routes/gmail.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -32,22 +36,11 @@ app.get('/health', (req, res) => {
 // Auth routes
 app.use('/api/auth', authRoutes);
 
-// Placeholder routes for workspace APIs (we'll fill these in Phase 2)
-app.get('/api/docs/create', (req, res) => {
-  res.json({ message: 'Google Docs route will be implemented in Phase 2' });
-});
-
-app.get('/api/sheets/create', (req, res) => {
-  res.json({ message: 'Google Sheets route will be implemented in Phase 2' });
-});
-
-app.get('/api/drive/list', (req, res) => {
-  res.json({ message: 'Google Drive route will be implemented in Phase 2' });
-});
-
-app.get('/api/gmail/draft', (req, res) => {
-  res.json({ message: 'Gmail route will be implemented in Phase 2' });
-});
+// Workspace API routes
+app.use('/api/docs', docsRoutes);
+app.use('/api/sheets', sheetsRoutes);
+app.use('/api/drive', driveRoutes);
+app.use('/api/gmail', gmailRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
