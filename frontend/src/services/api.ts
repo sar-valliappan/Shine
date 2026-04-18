@@ -32,9 +32,21 @@ export const parseCommand = async (input: string): Promise<WorkspaceResult> => {
 
 export const getGoogleAuthUrl = (): string => `${API_BASE_URL}/api/auth/google`;
 
+export const getAuthStatus = async (): Promise<boolean> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/status`, {
+    method: 'GET',
+    credentials: 'include'
+  });
+
+  if (!response.ok) return false;
+
+  const payload = await parseJsonResponse(response);
+  return !!payload?.authenticated;
+};
+
 export const logout = async (): Promise<void> => {
   await fetch(`${API_BASE_URL}/api/auth/logout`, {
-    method: 'POST',
+    method: 'GET',
     credentials: 'include'
   });
 };
