@@ -1,11 +1,7 @@
 import { Terminal } from './components/Terminal'
 
 function App() {
-  return (
-    <div className="w-full h-full bg-terminal-bg text-terminal-text overflow-hidden">
-      <Terminal />
-    </div>
-  )
+  return <Terminal />
 }
 
 export default App
