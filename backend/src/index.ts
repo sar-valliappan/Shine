@@ -67,7 +67,4 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running at http://localhost:${PORT}`);
-  console.log(`📝 Auth URL: http://localhost:${PORT}/api/auth/google`);
-});
+export default app;
