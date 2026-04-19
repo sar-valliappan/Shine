@@ -422,9 +422,8 @@ async function editDocument(
 			const built = buildDocRequests(generated);
 			if (built.length > 0) {
 				const doc = await docs.documents.get({ documentId: fileId });
-				const body = doc.data.body as { content?: unknown[] };
-				const tail = body.content?.at(-1) as { endIndex?: number } | undefined;
-				let insertAt = (tail?.endIndex ?? 2) - 1;
+				const body = doc.data.body as { content?: Array<{ endIndex?: number }> };
+				let insertAt = (body.content?.at(-1)?.endIndex ?? 2) - 1;
 
 				const anchor = action.section_anchor?.trim();
 				if (action.operation !== 'append' && anchor) {

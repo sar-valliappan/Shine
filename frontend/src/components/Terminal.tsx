@@ -121,8 +121,8 @@ function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
   
   // Return the live editing URL for embedded views
   // Google Docs, Sheets, and Slides can be embedded with the /edit URL
+  // Forms /edit is blocked cross-origin in iframes — use the respondent view for preview
   if (app === 'forms') {
-    // Forms use /viewform for embedded viewing
     return url.replace(/\/edit(?:\?.*)?$/, '/viewform?embedded=true');
   }
 
@@ -361,7 +361,7 @@ function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): Do
         : app === 'slides' ? seedSlidesContent(normalizedTitle)
         : seedFormContent(normalizedTitle),
       url: result?.url,
-      previewUrl: googlePreviewUrl(app, result?.url) || result?.embedUrl,
+      previewUrl: result?.embedUrl || googlePreviewUrl(app, result?.url),
     };
   }
 
@@ -1440,6 +1440,9 @@ export function Terminal({ onLogout }: { onLogout?: () => void } = {}) {
         activePresentationId: currentOpen?.app === 'slides' && currentOpen.url
           ? (extractGoogleWorkspaceFileIdFromUrl(currentOpen.url) ?? '') : '',
         activePresentationTitle: currentOpen?.app === 'slides' ? currentOpen.title : '',
+        activeFormId: currentOpen?.app === 'forms' && currentOpen.url
+          ? (extractGoogleWorkspaceFileIdFromUrl(currentOpen.url) ?? '') : '',
+        activeFormTitle: currentOpen?.app === 'forms' ? currentOpen.title : '',
       };
       const result = await parseWorkspaceCommand(cmd, hints);
       const nextDoc = docFromWorkspaceResult(result, cmd);
