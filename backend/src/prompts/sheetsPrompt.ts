@@ -34,6 +34,8 @@ AVAILABLE OPERATIONS (use in "operations" array)
 
 All sheetId fields default to 0 (first sheet) if omitted.
 Row/column indexes are 0-based.
+startRow/startColumn are INCLUSIVE. endRow/endColumn are EXCLUSIVE.
+Example: to target row 1 only, use startRow: 1, endRow: 2. To target column 2 only, use startColumn: 2, endColumn: 3.
 
 --- DATA ---
 
@@ -191,11 +193,16 @@ Row/column indexes are 0-based.
 --- CHARTS ---
 
 { "op": "addChart", "sheetId": 0,
-  "chartType": "BAR", "title": "Sales by Region",
-  "dataStartRow": 0, "dataEndRow": 10,
-  "dataStartColumn": 0, "dataEndColumn": 3,
-  "anchorRow": 2, "anchorColumn": 5 }
+  "chartType": "COLUMN", "title": "Hours by Employee",
+  "dataStartRow": 0, "dataEndRow": 7,
+  "dataStartColumn": 0, "dataEndColumn": 6,
+  "anchorRow": 10, "anchorColumn": 0 }
   → Adds a chart. chartType: "BAR" | "COLUMN" | "LINE" | "PIE" | "SCATTER" | "AREA"
+  → dataStartColumn is the label/category column (e.g. employee names or dates).
+  → dataStartColumn+1 through dataEndColumn-1 are the data series columns.
+  → dataStartRow should be 0 (include headers so the chart labels them correctly).
+  → dataEndRow is the last row index + 1 (exclusive), covering all data rows.
+  → anchorRow/anchorColumn sets where the chart is placed on the sheet.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES

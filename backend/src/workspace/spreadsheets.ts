@@ -411,6 +411,23 @@ function buildRequest(op: SheetsOperation): any {
 				BAR: 'BAR', COLUMN: 'COLUMN', LINE: 'LINE',
 				PIE: 'PIE', SCATTER: 'SCATTER', AREA: 'AREA',
 			};
+			// Sheets API requires one series entry per data column — a single multi-column range is invalid
+			const seriesEntries = [];
+			for (let col = op.dataStartColumn + 1; col < op.dataEndColumn; col++) {
+				seriesEntries.push({
+					series: {
+						sourceRange: {
+							sources: [{
+								sheetId: sid,
+								startRowIndex: op.dataStartRow,
+								endRowIndex: op.dataEndRow,
+								startColumnIndex: col,
+								endColumnIndex: col + 1,
+							}],
+						},
+					},
+				});
+			}
 			return {
 				addChart: {
 					chart: {
@@ -431,19 +448,7 @@ function buildRequest(op: SheetsOperation): any {
 										},
 									},
 								}],
-								series: [{
-									series: {
-										sourceRange: {
-											sources: [{
-												sheetId: sid,
-												startRowIndex: op.dataStartRow,
-												endRowIndex: op.dataEndRow,
-												startColumnIndex: op.dataStartColumn + 1,
-												endColumnIndex: op.dataEndColumn,
-											}],
-										},
-									},
-								}],
+								series: seriesEntries,
 							},
 						},
 						position: {
