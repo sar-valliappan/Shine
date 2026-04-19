@@ -7,6 +7,7 @@ import { executeCalendarAction } from './calendar.js';
 import type { ParseRouteResult } from './types.js';
 import { parseRawEmailMessage } from './gmailDraft.js';
 import { extractFileIdFromWorkspaceUrl } from './activeSession.js';
+import { enrichDriveFile } from './drivePreview.js';
 
 const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const INVALID_RECIPIENT_PLACEHOLDERS = new Set(['unknown', 'n/a', 'na', 'none', 'null', 'undefined', 'tbd']);
@@ -267,7 +268,7 @@ export async function executeWorkspaceAction(
 				action: 'list_files',
 				title: 'Drive files',
 				fileType: 'list',
-				items: result.data.files ?? [],
+				items: (result.data.files ?? []).map((file) => enrichDriveFile(file)),
 				summary: `Found ${(result.data.files ?? []).length} files`,
 			};
 		}
@@ -287,7 +288,7 @@ export async function executeWorkspaceAction(
 				action: 'search_drive',
 				title: `Search results for ${query}`,
 				fileType: 'list',
-				items: result.data.files ?? [],
+				items: (result.data.files ?? []).map((file) => enrichDriveFile(file)),
 				summary: `Found ${(result.data.files ?? []).length} files`,
 			};
 		}

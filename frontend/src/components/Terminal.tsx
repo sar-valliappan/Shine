@@ -64,7 +64,7 @@ interface SiteBlock { kind: 'hero' | 'grid' | 'text'; title?: string; body?: str
 interface SitesContent { title: string; blocks: SiteBlock[]; }
 interface Assignment { title: string; due: string; points: number; }
 interface ClassroomContent { title: string; section: string; assignments: Assignment[]; students: number; }
-interface DriveItem { name: string; kind: string; modified: string; webViewLink?: string; url?: string; }
+interface DriveItem { id?: string; name: string; kind: string; modified: string; mimeType?: string; webViewLink?: string; url?: string; embedUrl?: string; }
 interface DriveContent { items: DriveItem[]; }
 
 interface Block {
@@ -131,6 +131,19 @@ function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
 
   // For docs, sheets, slides - return the edit URL which supports live embedding
   return url;
+}
+
+function driveItemKey(item?: DriveItem | null): string {
+  if (!item) return '';
+  return item.id || item.webViewLink || item.url || item.name;
+}
+
+function driveItemPreviewUrl(item: DriveItem): string | undefined {
+  return item.embedUrl || item.url || item.webViewLink;
+}
+
+function driveItemOpenUrl(item: DriveItem): string | undefined {
+  return item.webViewLink || item.url || item.embedUrl;
 }
 
 // ── Seed content ──────────────────────────────────────────────────────────
@@ -307,6 +320,7 @@ function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): Do
   if (app === 'drive') {
     const items = Array.isArray(result?.items)
       ? result.items.map((item: any) => ({
+          id: item?.id,
           name: item?.name || item?.title || 'untitled',
           kind: item?.mimeType?.includes('spreadsheet')
             ? 'sheets'
@@ -314,10 +328,16 @@ function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): Do
               ? 'slides'
               : item?.mimeType?.includes('document')
                 ? 'docs'
+                : item?.mimeType?.includes('form')
+                  ? 'forms'
+                  : item?.mimeType?.includes('folder')
+                    ? 'drive'
                 : 'drive',
           modified: item?.modifiedTime ? 'recently' : 'unknown',
+          mimeType: item?.mimeType,
           webViewLink: item?.webViewLink,
           url: item?.webViewLink || item?.url,
+          embedUrl: item?.embedUrl,
         }))
       : seedDriveContent().items;
 
@@ -997,6 +1017,16 @@ function ClassroomApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) =>
 
 function DriveApp({ doc }: { doc: DocState }) {
   const content = doc.content as DriveContent;
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedKey(content.items.length ? driveItemKey(content.items[0]) : null);
+  }, [doc.title, content.items]);
+
+  const selectedItem = content.items.find((item) => driveItemKey(item) === selectedKey) || content.items[0] || null;
+  const previewUrl = selectedItem ? driveItemPreviewUrl(selectedItem) : undefined;
+  const openUrl = selectedItem ? driveItemOpenUrl(selectedItem) : undefined;
+
   return (
     <div className="app-surface">
       <div className="app-titlebar">
@@ -1009,24 +1039,65 @@ function DriveApp({ doc }: { doc: DocState }) {
         </span>
         <span className="app-saved">{content.items.length} files</span>
       </div>
-      <div className="drive-grid">
-        {content.items.map((it, i) => {
-          const color = it.kind === 'drive' ? DRIVE_MIX[i % DRIVE_MIX.length] : (APPS[it.kind as AppKey]?.accent || '#888');
-          const tileBody = (
-            <>
-              <div className="drive-thumb" style={{ borderColor: color }}>
-                <span className="drive-kind" style={{ color }}>{APPS[it.kind as AppKey]?.ext || 'file'}</span>
+      <div className="drive-workspace">
+        <div className="drive-grid drive-list">
+          {content.items.map((it, i) => {
+            const color = it.kind === 'drive' ? DRIVE_MIX[i % DRIVE_MIX.length] : (APPS[it.kind as AppKey]?.accent || '#888');
+            const itemKey = driveItemKey(it);
+            const isSelected = selectedKey === itemKey;
+            return (
+              <button
+                type="button"
+                key={itemKey}
+                className={'drive-tile drive-tile-button' + (isSelected ? ' is-selected' : '')}
+                onClick={() => setSelectedKey(itemKey)}
+              >
+                <div className="drive-thumb" style={{ borderColor: color }}>
+                  <span className="drive-kind" style={{ color }}>{APPS[it.kind as AppKey]?.ext || 'file'}</span>
+                </div>
+                <div className="drive-name">{it.name}</div>
+                <div className="drive-time">{it.modified}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="drive-preview">
+          <div className="drive-preview-head">
+            <div className="drive-preview-title">{selectedItem ? selectedItem.name : 'Select a file'}</div>
+            <div className="drive-preview-meta">{selectedItem?.mimeType || (selectedItem ? selectedItem.kind : 'drive preview')}</div>
+            {openUrl ? (
+              <a className="app-live-link drive-open-link" href={openUrl} target="_blank" rel="noreferrer">open live</a>
+            ) : null}
+          </div>
+          <div className="drive-preview-shell">
+            {previewUrl ? (
+              <iframe
+                className="drive-preview-frame"
+                src={previewUrl}
+                title={selectedItem ? 'Drive file: ' + selectedItem.name : 'Drive preview'}
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+              />
+            ) : (
+              <div className="drive-preview-empty">
+                <div className="form-body">
+                  <div className="form-desc">
+                    {selectedItem ? 'This file does not expose an embeddable preview.' : 'Select a file in Drive to preview it here.'}
+                  </div>
+                  {selectedItem && (
+                    <div className="form-q">
+                      <div className="form-q-num" style={{ color: DRIVE_MIX[0] }}>1.</div>
+                      <div className="form-q-body">
+                        <div className="form-q-text">{selectedItem.name}</div>
+                        <div className="form-q-type">Open live to view this file in Google Drive.</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="drive-name">{it.name}</div>
-              <div className="drive-time">{it.modified}</div>
-            </>
-          );
-          return (
-            it.url || it.webViewLink
-              ? <a className="drive-tile drive-tile-link" key={i} href={it.url || it.webViewLink} target="_blank" rel="noreferrer">{tileBody}</a>
-              : <div className="drive-tile" key={i}>{tileBody}</div>
-          );
-        })}
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

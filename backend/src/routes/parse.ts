@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { routeToApp } from '../services/gemini.js';
+import { lookupDriveFilesByName } from '../workspace/drive.js';
 import {
 	executeAppCommand,
 	extractFileIdFromWorkspaceUrl,
@@ -66,6 +67,7 @@ async function syncActiveFileFromResult(
 		end_time?: string;
 		location?: string;
 		description?: string;
+		fileType?: string;
 	},
 	oauthClient: unknown,
 ) {
@@ -148,6 +150,24 @@ async function syncActiveFileFromResult(
 		};
 		patch.activeApp = 'calendar';
 	}
+	if (result.fileType === 'doc' || result.fileType === 'sheet' || result.fileType === 'slides' || result.fileType === 'form') {
+		const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
+		if (workspaceFileId) {
+			if (result.fileType === 'doc') {
+				patch.document = { id: workspaceFileId, title: title ?? prev.document?.title ?? 'Untitled' };
+				patch.activeApp = 'docs';
+			} else if (result.fileType === 'sheet') {
+				patch.spreadsheet = { id: workspaceFileId, title: title ?? prev.spreadsheet?.title ?? 'Untitled' };
+				patch.activeApp = 'sheets';
+			} else if (result.fileType === 'slides') {
+				patch.presentation = { id: workspaceFileId, title: title ?? prev.presentation?.title ?? 'Untitled' };
+				patch.activeApp = 'slides';
+			} else if (result.fileType === 'form') {
+				patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
+				patch.activeApp = 'forms';
+			}
+		}
+	}
 	if (Object.keys(patch).length) updateActiveWorkspace(sessionId, patch);
 }
 
@@ -160,6 +180,10 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
 		const sessionId = (req.session as any).id;
 		const active = getActiveWorkspace(sessionId);
+		const explicitDriveLookup = await lookupDriveFilesByName(command.trim(), req.oauthClient, process.env.GEMINI_API_KEY);
+		if (explicitDriveLookup) {
+			return res.json(explicitDriveLookup);
+		}
 
 		// Step 1: Gemini decides which app the user wants
 		const app = chooseAppFromActiveContext(command, active) ?? (await routeToApp(command.trim(), active));
