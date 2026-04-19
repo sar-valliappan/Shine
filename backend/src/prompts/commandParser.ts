@@ -88,7 +88,20 @@ AVAILABLE ACTIONS
    Fields:
      - query (required): what to search for
 
-11. edit_document
+11. share_file
+   Use when: user wants to share a file or invite collaborators to an existing Docs, Sheets, Slides, Forms, or Drive item
+   Trigger phrases: "share", "invite", "collaborate", "grant access", "give access"
+   Fields:
+     - fileId (required when available): the active file id from context or a file id extracted from the user's request
+     - fileUrl (optional): file URL if the user pasted a link instead of an id
+     - fileType (optional): "doc" | "sheet" | "slides" | "form" | "drive"
+     - title (optional): file title for reporting
+     - recipients (required): array of email addresses
+     - role (optional): "reader" | "commenter" | "writer"
+     - notify (optional): true to email invitees, false to suppress notifications
+     - message (optional): custom invite message
+
+12. edit_document
     Use when: user wants to change the active Google Doc (headings, bullets, new paragraphs, find/replace, delete text, or tables)
     Trigger phrases: "add a section", "append", "replace X with Y", "remove the phrase", "delete the word", "insert a table", "add a 4x3 table"
     Fields:
@@ -105,7 +118,7 @@ AVAILABLE ACTIONS
               → table_data (optional array of string arrays) for additional rows
     Notes: For replace/delete, copy find_text exactly as the user describes the phrase to match (short literal substring).
 
-12. edit_spreadsheet
+13. edit_spreadsheet
     Use when: user wants to modify the active Google Sheet (row/column operations)
     Trigger phrases: "add a row", "append row", "new column"
     Fields:
@@ -113,7 +126,7 @@ AVAILABLE ACTIONS
       - row (optional array of values) for add_row — infer cells from the command
       - header (optional) column title for add_column
 
-13. edit_presentation
+14. edit_presentation
     Use when: user wants to change the active Google Slides deck
     Trigger phrases: "add a slide", "delete slide 2", "update slide 1 title"
     Fields:
@@ -122,7 +135,7 @@ AVAILABLE ACTIONS
       - slide_index (optional, 0-based) for edit_slide / delete_slide — default 0 if not specified
       - title, body (optional) for edit_slide — new title or body text
 
-14. clarify
+15. clarify
     Use when: you genuinely cannot determine the intent or a required field is missing and cannot be inferred
     Fields:
       - question (required): one specific question to resolve the ambiguity

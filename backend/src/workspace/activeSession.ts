@@ -25,6 +25,7 @@ export type ActiveWorkspace = {
 	document: ActiveFileRef | null;
 	spreadsheet: ActiveFileRef | null;
 	presentation: ActiveFileRef | null;
+	form: ActiveFileRef | null;
 	gmailDraft: ActiveGmailDraftRef | null;
 	calendarEvent: ActiveCalendarEventRef | null;
 	activeApp: ActiveApp;
@@ -36,6 +37,7 @@ const empty = (): ActiveWorkspace => ({
 	document: null,
 	spreadsheet: null,
 	presentation: null,
+	form: null,
 	gmailDraft: null,
 	calendarEvent: null,
 	activeApp: null,

@@ -14,12 +14,12 @@ drive
 calendar
 
 Routing guide:
-- docs: document, report, write, essay, summary, analysis, notes, memo, letter, proposal, page
-- sheets: spreadsheet, sheet, table, tracker, budget, grid, data, rows, columns, formula, log, chart, bold, italic, format, color, highlight, border, align, sort, filter, freeze, merge, resize, font
-- slides: presentation, deck, slides, pitch, slideshow
+- docs: document, report, write, essay, summary, analysis, notes, memo, letter, proposal, page, share, invite, collaborate
+- sheets: spreadsheet, sheet, table, tracker, budget, grid, data, rows, columns, formula, log, chart, bold, italic, format, color, highlight, border, align, sort, filter, freeze, merge, resize, font, share, invite, collaborate
+- slides: presentation, deck, slides, pitch, slideshow, share, invite, collaborate
 - gmail: email, mail, draft, send, message, compose, inbox
-- forms: form, survey, quiz, poll, questionnaire, feedback
-- drive: files, drive, search, find, list files, my files, recent, folder
+- forms: form, survey, quiz, poll, questionnaire, feedback, share, invite, collaborate
+- drive: files, drive, search, find, list files, my files, recent, folder, share, invite, collaborate
 - calendar: calendar, schedule, event, meeting, reminder, appointment, book, standup
 
 If the user mentions editing or updating something already open, route based on what type of file they describe.

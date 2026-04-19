@@ -6,9 +6,50 @@ import { executePresentationAction } from './presentations.js';
 import { executeCalendarAction } from './calendar.js';
 import type { ParseRouteResult } from './types.js';
 import { parseRawEmailMessage } from './gmailDraft.js';
+import { extractFileIdFromWorkspaceUrl } from './activeSession.js';
 
 const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const INVALID_RECIPIENT_PLACEHOLDERS = new Set(['unknown', 'n/a', 'na', 'none', 'null', 'undefined', 'tbd']);
+
+function normalizeShareRecipients(value: string[] | string | undefined): string[] {
+	if (Array.isArray(value)) {
+		return value.map((entry) => entry.trim()).filter(Boolean);
+	}
+	const trimmed = (value ?? '').trim();
+	if (!trimmed) return [];
+	return trimmed.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function normalizeShareRecipient(entry: string): string | null {
+	if (!entry) return null;
+	if (INVALID_RECIPIENT_PLACEHOLDERS.has(entry.toLowerCase())) return null;
+	if (SIMPLE_EMAIL_REGEX.test(entry)) return entry;
+	const match = entry.match(/^.+<\s*([^\s<>@,]+@[^\s<>@,]+\.[^\s<>@,]+)\s*>$/);
+	return match && SIMPLE_EMAIL_REGEX.test(match[1]) ? match[1] : null;
+}
+
+async function shareFileWithDrive(
+	oauthClient: unknown,
+	fileId: string,
+	recipients: string[],
+	role: 'reader' | 'commenter' | 'writer',
+	notify = true,
+	message?: string,
+): Promise<void> {
+	const drive = google.drive({ version: 'v3', auth: oauthClient as any });
+	for (const recipient of recipients) {
+		await drive.permissions.create({
+			fileId,
+			sendNotificationEmail: notify,
+			requestBody: {
+				type: 'user',
+				role,
+				emailAddress: recipient,
+				...(message ? { emailMessage: message } : {}),
+			},
+		});
+	}
+}
 
 function normalizeToHeader(value: string | undefined): string | null {
 	const trimmed = (value ?? '').trim();
@@ -44,10 +85,49 @@ export async function executeWorkspaceAction(
 		case 'edit_presentation':
 			return executePresentationAction(action, oauthClient, apiKey);
 
+		case 'share_file': {
+			const fileId = action.fileId?.trim() || (action.fileUrl ? extractFileIdFromWorkspaceUrl(action.fileUrl) : null);
+			if (!fileId) throw new Error('share_file requires a fileId or fileUrl');
+
+			const recipients = normalizeShareRecipients(action.recipients)
+				.map(normalizeShareRecipient)
+				.filter((recipient): recipient is string => !!recipient);
+			if (!recipients.length) {
+				return {
+					action: 'clarify',
+					title: 'Clarification needed',
+					fileType: 'system',
+					summary: 'Please provide one or more valid recipient email addresses.',
+				};
+			}
+
+			const role = action.role ?? (action.fileType === 'drive' ? 'reader' : 'writer');
+			await shareFileWithDrive(oauthClient, fileId, recipients, role, action.notify ?? true, action.message);
+
+			let fileName = action.title?.trim();
+			if (!fileName) {
+				try {
+					const drive = google.drive({ version: 'v3', auth: oauthClient as any });
+					const meta = await drive.files.get({ fileId, fields: 'name' });
+					fileName = meta.data.name ?? undefined;
+				} catch {
+					fileName = undefined;
+				}
+			}
+
+			return {
+				action: 'share_file',
+				title: fileName ?? 'Shared file',
+				url: action.fileUrl ?? `https://drive.google.com/open?id=${fileId}`,
+				fileType: action.fileType ?? 'drive',
+				summary: `Shared ${fileName ?? 'file'} with ${recipients.join(', ')} as ${role}${action.notify === false ? ' without notifications' : ''}`,
+			};
+		}
+
 		case 'create_event': {
 			return executeCalendarAction(
 				action,
-				{ document: null, spreadsheet: null, presentation: null, gmailDraft: null, calendarEvent: null, activeApp: null },
+				{ document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null },
 				'',
 				oauthClient,
 			);
