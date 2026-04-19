@@ -203,6 +203,18 @@ Example: to target row 1 only, use startRow: 1, endRow: 2. To target column 2 on
   → dataStartRow should be 0 (include headers so the chart labels them correctly).
   → dataEndRow is the last row index + 1 (exclusive), covering all data rows.
   → anchorRow/anchorColumn sets where the chart is placed on the sheet.
+  → PIE charts only support a single data series (one value column).
+
+{ "op": "deleteChart", "chartId": 1234567 }
+  → Deletes a chart by its chartId. Use the chartId from the "Existing charts" context.
+  → When the user wants to change chart type or data, use deleteChart + addChart together.
+
+{ "op": "updateChartSpec", "chartId": 1234567, "sheetId": 0,
+  "chartType": "LINE", "title": "Updated Title",
+  "dataStartRow": 0, "dataEndRow": 7,
+  "dataStartColumn": 0, "dataEndColumn": 6 }
+  → Updates an existing chart's type and data range in place (no position change).
+  → Prefer this over deleteChart + addChart when only the type or data is changing.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
@@ -215,6 +227,8 @@ RULES
 - Never return operations that would destroy data unless the user explicitly asked to delete.
 - When the active spreadsheet context lists headers and column indexes, use those EXACT column indexes — never guess.
 - When appending a new data row, match the number of values exactly to the number of columns in the sheet.
+- When placing a formula "below" a row, insert a new row first with insertDimension, then write the formula with updateCells at the correct row index. Never overwrite an existing row that contains data.
+- For formulas, always use A1 notation (e.g. =SUM(B2:M2)) and verify the referenced range matches what the context shows. If a row is at 0-based index N, its A1 row number is N+1.
 - Undo and redo are not supported by the Sheets API. If the user asks to undo/redo/revert, return { "intent": "edit", "operations": [] }.
 `;
 

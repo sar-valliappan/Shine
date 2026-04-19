@@ -54,7 +54,9 @@ type SheetsOperation =
 	| { op: 'deleteDuplicates'; sheetId?: number; startRow: number; endRow: number; startColumn: number; endColumn: number; comparisonColumns?: number[] }
 	| { op: 'setDataValidation'; sheetId?: number; startRow: number; endRow: number; startColumn: number; endColumn: number; type: string; values?: string[]; strict?: boolean; showDropdown?: boolean }
 	| { op: 'addConditionalFormatRule'; sheetId?: number; startRow: number; endRow: number; startColumn: number; endColumn: number; conditionType: string; conditionValues?: string[]; backgroundColorHex?: string; fontColorHex?: string }
-	| { op: 'addChart'; sheetId?: number; chartType: string; title?: string; dataStartRow: number; dataEndRow: number; dataStartColumn: number; dataEndColumn: number; anchorRow?: number; anchorColumn?: number };
+	| { op: 'addChart'; sheetId?: number; chartType: string; title?: string; dataStartRow: number; dataEndRow: number; dataStartColumn: number; dataEndColumn: number; anchorRow?: number; anchorColumn?: number }
+	| { op: 'deleteChart'; chartId: number }
+	| { op: 'updateChartSpec'; chartId: number; sheetId?: number; chartType: string; title?: string; dataStartRow: number; dataEndRow: number; dataStartColumn: number; dataEndColumn: number };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -91,6 +93,30 @@ function borderStyle(style = 'SOLID', colorHex = '#000000') {
 
 const DEFAULT_MODEL_CANDIDATES = ['gemma-3-27b-it', 'gemma-3-12b-it', 'gemma-3-4b-it'] as const;
 
+// ── JSON sanitizer (fixes literal control chars Gemini sometimes emits inside strings) ──
+
+function sanitizeJson(raw: string): string {
+	let inString = false;
+	let escaped = false;
+	let out = '';
+	for (let i = 0; i < raw.length; i++) {
+		const ch = raw[i];
+		const code = raw.charCodeAt(i);
+		if (escaped) { out += ch; escaped = false; continue; }
+		if (ch === '\\') { escaped = true; out += ch; continue; }
+		if (ch === '"') { inString = !inString; out += ch; continue; }
+		if (inString && code < 0x20) {
+			if (code === 0x0a) out += '\\n';
+			else if (code === 0x0d) out += '\\r';
+			else if (code === 0x09) out += '\\t';
+			else out += `\\u${code.toString(16).padStart(4, '0')}`;
+			continue;
+		}
+		out += ch;
+	}
+	return out;
+}
+
 // ── Gemini call ───────────────────────────────────────────────────────────
 
 async function callGeminiForSheets(prompt: string, apiKey: string): Promise<SheetsIntent> {
@@ -117,10 +143,107 @@ async function callGeminiForSheets(prompt: string, apiKey: string): Promise<Shee
 	const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
 	const jsonStart = cleaned.indexOf('{');
 	if (jsonStart === -1) throw new Error('No JSON found in Gemini response');
-	const parsed = JSON.parse(cleaned.slice(jsonStart));
+	const parsed = JSON.parse(sanitizeJson(cleaned.slice(jsonStart)));
 
 	if (!parsed.intent) throw new Error('Gemini response missing intent field');
 	return parsed as SheetsIntent;
+}
+
+// ── Chart spec builder ────────────────────────────────────────────────────
+
+function buildChartObject(
+	chartType: string,
+	title: string | undefined,
+	dataStartRow: number,
+	dataEndRow: number,
+	dataStartColumn: number,
+	dataEndColumn: number,
+	sid: number,
+	anchorRow?: number,
+	anchorColumn?: number,
+) {
+	const position = {
+		overlayPosition: {
+			anchorCell: { sheetId: sid, rowIndex: anchorRow ?? 2, columnIndex: anchorColumn ?? 5 },
+		},
+	};
+
+	if (chartType?.toUpperCase() === 'PIE') {
+		return {
+			spec: {
+				title: title ?? '',
+				pieChart: {
+					legendPosition: 'RIGHT_LEGEND',
+					domain: {
+						sourceRange: {
+							sources: [{
+								sheetId: sid,
+								startRowIndex: dataStartRow,
+								endRowIndex: dataEndRow,
+								startColumnIndex: dataStartColumn,
+								endColumnIndex: dataStartColumn + 1,
+							}],
+						},
+					},
+					series: {
+						sourceRange: {
+							sources: [{
+								sheetId: sid,
+								startRowIndex: dataStartRow,
+								endRowIndex: dataEndRow,
+								startColumnIndex: dataStartColumn + 1,
+								endColumnIndex: dataStartColumn + 2,
+							}],
+						},
+					},
+				},
+			},
+			position,
+		};
+	}
+
+	const chartTypeMap: Record<string, string> = {
+		BAR: 'BAR', COLUMN: 'COLUMN', LINE: 'LINE', SCATTER: 'SCATTER', AREA: 'AREA',
+	};
+	const seriesEntries = [];
+	for (let col = dataStartColumn + 1; col < dataEndColumn; col++) {
+		seriesEntries.push({
+			series: {
+				sourceRange: {
+					sources: [{
+						sheetId: sid,
+						startRowIndex: dataStartRow,
+						endRowIndex: dataEndRow,
+						startColumnIndex: col,
+						endColumnIndex: col + 1,
+					}],
+				},
+			},
+		});
+	}
+	return {
+		spec: {
+			title: title ?? '',
+			basicChart: {
+				chartType: chartTypeMap[chartType?.toUpperCase()] ?? 'COLUMN',
+				domains: [{
+					domain: {
+						sourceRange: {
+							sources: [{
+								sheetId: sid,
+								startRowIndex: dataStartRow,
+								endRowIndex: dataEndRow,
+								startColumnIndex: dataStartColumn,
+								endColumnIndex: dataStartColumn + 1,
+							}],
+						},
+					},
+				}],
+				series: seriesEntries,
+			},
+		},
+		position,
+	};
 }
 
 // ── Operation → batchUpdate request ───────────────────────────────────────
@@ -406,64 +529,14 @@ function buildRequest(op: SheetsOperation): any {
 			};
 		}
 
-		case 'addChart': {
-			const chartTypeMap: Record<string, string> = {
-				BAR: 'BAR', COLUMN: 'COLUMN', LINE: 'LINE',
-				PIE: 'PIE', SCATTER: 'SCATTER', AREA: 'AREA',
-			};
-			// Sheets API requires one series entry per data column — a single multi-column range is invalid
-			const seriesEntries = [];
-			for (let col = op.dataStartColumn + 1; col < op.dataEndColumn; col++) {
-				seriesEntries.push({
-					series: {
-						sourceRange: {
-							sources: [{
-								sheetId: sid,
-								startRowIndex: op.dataStartRow,
-								endRowIndex: op.dataEndRow,
-								startColumnIndex: col,
-								endColumnIndex: col + 1,
-							}],
-						},
-					},
-				});
-			}
-			return {
-				addChart: {
-					chart: {
-						spec: {
-							title: op.title ?? '',
-							basicChart: {
-								chartType: chartTypeMap[op.chartType?.toUpperCase()] ?? 'COLUMN',
-								domains: [{
-									domain: {
-										sourceRange: {
-											sources: [{
-												sheetId: sid,
-												startRowIndex: op.dataStartRow,
-												endRowIndex: op.dataEndRow,
-												startColumnIndex: op.dataStartColumn,
-												endColumnIndex: op.dataStartColumn + 1,
-											}],
-										},
-									},
-								}],
-								series: seriesEntries,
-							},
-						},
-						position: {
-							overlayPosition: {
-								anchorCell: {
-									sheetId: sid,
-									rowIndex: op.anchorRow ?? 2,
-									columnIndex: op.anchorColumn ?? 5,
-								},
-							},
-						},
-					},
-				},
-			};
-		}
+		case 'addChart':
+			return { addChart: { chart: buildChartObject(op.chartType, op.title, op.dataStartRow, op.dataEndRow, op.dataStartColumn, op.dataEndColumn, sid, op.anchorRow, op.anchorColumn) } };
+
+		case 'deleteChart':
+			return { deleteEmbeddedObject: { objectId: op.chartId } };
+
+		case 'updateChartSpec':
+			return { updateChartSpec: { chartId: op.chartId, spec: buildChartObject(op.chartType, op.title, op.dataStartRow, op.dataEndRow, op.dataStartColumn, op.dataEndColumn, op.sheetId ?? 0).spec } };
 
 		default:
 			throw new Error(`Unknown sheets operation: ${(op as any).op}`);
@@ -493,6 +566,17 @@ export async function handleSheetsCommand(
 				index: s.properties?.index,
 			}));
 
+			// Include chart IDs so Gemini can delete/update existing charts
+			const charts = (meta.data.sheets ?? []).flatMap((s) =>
+				(s.charts ?? []).map((c) => ({
+					chartId: c.chartId,
+					title: c.spec?.title ?? '(untitled)',
+				})),
+			);
+			const chartContext = charts.length > 0
+				? `\nExisting charts: ${JSON.stringify(charts)} — use chartId when deleting or updating a chart.`
+				: '';
+
 			// Fetch actual cell data so Gemini knows headers, column positions, and row count
 			let dataContext = '';
 			try {
@@ -520,7 +604,7 @@ export async function handleSheetsCommand(
 				}
 			} catch { /* best-effort — proceed without row data */ }
 
-			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})\nTabs: ${JSON.stringify(sheetList)}\nUse the sheetId values above when targeting a specific tab.${dataContext}`;
+			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})\nTabs: ${JSON.stringify(sheetList)}\nUse the sheetId values above when targeting a specific tab.${chartContext}${dataContext}`;
 		} catch {
 			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})`;
 		}
