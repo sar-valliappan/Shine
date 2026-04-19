@@ -3,6 +3,7 @@ import type { WorkspaceAction } from '../types/actions.js';
 import { generateEditedEmailBody, generateEmailBody } from '../prompts/gmailMessageGenerator.js';
 import { executeDocumentAction } from './documents.js';
 import { executePresentationAction } from './presentations.js';
+import { executeCalendarAction } from './calendar.js';
 import type { ParseRouteResult } from './types.js';
 import { parseRawEmailMessage } from './gmailDraft.js';
 
@@ -44,30 +45,12 @@ export async function executeWorkspaceAction(
 			return executePresentationAction(action, oauthClient, apiKey);
 
 		case 'create_event': {
-			const calendar = google.calendar({ version: 'v3', auth: oauthClient as any });
-			const summary = action.summary?.trim();
-			if (!summary || !action.start_time || !action.end_time) {
-				throw new Error('create_event requires summary, start_time, end_time');
-			}
-
-			const event = await calendar.events.insert({
-				calendarId: 'primary',
-				requestBody: {
-					summary,
-					start: { dateTime: new Date(action.start_time).toISOString() },
-					end: { dateTime: new Date(action.end_time).toISOString() },
-					location: action.location,
-					description: action.description,
-				},
-			});
-
-			return {
-				action: 'create_event',
-				title: summary,
-				url: event.data.htmlLink ?? '',
-				fileType: 'calendar',
-				summary: `Created calendar event: ${summary}`,
-			};
+			return executeCalendarAction(
+				action,
+				{ document: null, spreadsheet: null, presentation: null, gmailDraft: null, calendarEvent: null, activeApp: null },
+				'',
+				oauthClient,
+			);
 		}
 
 		case 'create_form': {

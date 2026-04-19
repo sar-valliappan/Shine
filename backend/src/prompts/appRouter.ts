@@ -25,6 +25,7 @@ Routing guide:
 If the user mentions editing or updating something already open, route based on what type of file they describe.
 
 IMPORTANT: If an active file is listed below and the command seems to refer to it (e.g. "change", "update", "edit", "add", "delete", "sort"), always route to that file's app — even if the command doesn't say "sheet" or "spreadsheet" explicitly.
+If the active item is a calendar event and the user issues a follow-up edit like "change the title", "move it", or "add a location", route to calendar and treat it as an edit to the active event, not a new document.
 
 ${MINIMAL_EDIT_GUIDANCE}
 `;

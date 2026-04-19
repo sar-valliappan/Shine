@@ -128,6 +128,7 @@ AVAILABLE ACTIONS
       - question (required): one specific question to resolve the ambiguity
 
 When multiple workspace files are active, choose edit_document / edit_spreadsheet / edit_presentation based on whether the user clearly means the doc, the sheet, or the slides.
+If an active calendar event is present, treat follow-up edit commands like title changes, time moves, location changes, or description updates as edits to that same event. In that case, you may omit unchanged fields and rely on the active calendar context.
 
 ${MINIMAL_EDIT_GUIDANCE}
 

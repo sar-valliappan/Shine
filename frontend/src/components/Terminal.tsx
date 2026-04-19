@@ -6,10 +6,11 @@ import {
   getGmailDraft,
   updateGmailDraft,
   sendGmailDraft,
+  updateCalendarEvent,
 } from '../services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
-type AppKey = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'sites' | 'classroom' | 'drive';
+type AppKey = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'calendar' | 'sites' | 'classroom' | 'drive';
 
 interface AppDef {
   label: string;
@@ -27,12 +28,38 @@ interface DocState {
   previewUrl?: string;
 }
 
+type WorkspaceParseResult = {
+  action?: string;
+  title?: string;
+  url?: string;
+  embedUrl?: string;
+  summary?: string;
+  fileType?: string;
+  items?: Array<any>;
+  eventId?: string;
+  calendarId?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
+};
+
 interface DocsContent { h: string; p: string; }
 interface SheetsContent { headers: string[]; rows: string[][]; }
 interface SlidesContent { title: string; sub: string; }
 interface GmailContent { to: string; subject: string; body: string; }
 interface FormsQuestion { q: string; type: 'scale' | 'long' | 'yesno'; }
 interface FormsContent { title: string; description: string; questions: FormsQuestion[]; }
+interface CalendarContent {
+  summary: string;
+  details?: string;
+  eventId?: string;
+  calendarId?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
+}
 interface SiteBlock { kind: 'hero' | 'grid' | 'text'; title?: string; body?: string; items?: string[]; }
 interface SitesContent { title: string; blocks: SiteBlock[]; }
 interface Assignment { title: string; due: string; points: number; }
@@ -66,6 +93,7 @@ const APPS: Record<AppKey, AppDef> = {
   slides:    { label: 'slides',    accent: '#FBBC05', ext: 'deck',  path: 'slides' },
   gmail:     { label: 'gmail',     accent: '#EA4335', ext: 'draft', path: 'gmail' },
   forms:     { label: 'forms',     accent: '#673AB7', ext: 'form',  path: 'forms' },
+  calendar:  { label: 'calendar',  accent: '#0B57D0', ext: 'event', path: 'calendar' },
   sites:     { label: 'sites',     accent: '#512DA8', ext: 'site',  path: 'sites' },
   classroom: { label: 'classroom', accent: '#0F9D58', ext: 'class', path: 'classroom' },
   drive:     { label: 'drive',     accent: 'multi',   ext: 'list',  path: 'drive' },
@@ -95,6 +123,10 @@ function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
   if (app === 'forms') {
     // Forms use /viewform for embedded viewing
     return url.replace(/\/edit(?:\?.*)?$/, '/viewform?embedded=true');
+  }
+
+  if (app === 'calendar') {
+    return 'https://calendar.google.com/calendar/embed?src=primary&mode=AGENDA';
   }
 
   // For docs, sheets, slides - return the edit URL which supports live embedding
@@ -174,6 +206,18 @@ function seedFormContent(topic: string): FormsContent {
     ],
   };
 }
+function seedCalendarContent(topic: string, result?: WorkspaceParseResult): CalendarContent {
+  return {
+    summary: result?.title || titleCase(topic),
+    details: 'Edit details below and save to update this event.',
+    eventId: result?.eventId,
+    calendarId: result?.calendarId,
+    start_time: result?.start_time,
+    end_time: result?.end_time,
+    location: result?.location,
+    description: result?.description,
+  };
+}
 function seedDriveContent(): DriveContent {
   return {
     items: [
@@ -248,11 +292,12 @@ function appFromFileType(fileType: string | undefined): AppKey | null {
   if (fileType === 'slides') return 'slides';
   if (fileType === 'gmail') return 'gmail';
   if (fileType === 'form') return 'forms';
+  if (fileType === 'calendar') return 'calendar';
   if (fileType === 'drive' || fileType === 'list') return 'drive';
   return null;
 }
 
-function docFromWorkspaceResult(result: any, input: string): DocState | null {
+function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): DocState | null {
   const app = appFromFileType(result?.fileType);
   if (!app) return null;
 
@@ -295,7 +340,18 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
         : app === 'slides' ? seedSlidesContent(normalizedTitle)
         : seedFormContent(normalizedTitle),
       url: result?.url,
-      previewUrl: googlePreviewUrl(app, result?.url),
+      previewUrl: result?.embedUrl || googlePreviewUrl(app, result?.url),
+    };
+  }
+
+  if (app === 'calendar') {
+    return {
+      app,
+      title: normalizedTitle,
+      slug: slug(normalizedTitle),
+      content: seedCalendarContent(normalizedTitle, result),
+      url: result?.url,
+      previewUrl: result?.embedUrl || googlePreviewUrl(app, result?.url),
     };
   }
 
@@ -692,6 +748,186 @@ function FormsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   );
 }
 
+function CalendarApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
+  const content = doc.content as CalendarContent;
+  const [draft, setDraft] = useState<CalendarContent>(content);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(content);
+  }, [content]);
+
+  const toLocalInputValue = (iso?: string): string => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+
+  const fromLocalInputValue = (localValue: string): string => {
+    return new Date(localValue).toISOString();
+  };
+
+  const canSave = !!draft.eventId && !!draft.summary?.trim() && !!draft.start_time && !!draft.end_time;
+
+  const handleSave = async () => {
+    if (!canSave || !draft.eventId) return;
+    if (new Date(draft.end_time!).getTime() <= new Date(draft.start_time!).getTime()) {
+      setSaveState('error');
+      setSaveError('End time must be after start time.');
+      return;
+    }
+
+    try {
+      setSaveState('saving');
+      setSaveError(null);
+      const updated = (await updateCalendarEvent(draft.eventId, {
+        summary: draft.summary.trim(),
+        start_time: draft.start_time!,
+        end_time: draft.end_time!,
+        location: draft.location || '',
+        description: draft.description || '',
+        calendarId: draft.calendarId,
+      })) as WorkspaceParseResult;
+
+      const nextContent: CalendarContent = {
+        ...draft,
+        summary: updated.title || draft.summary,
+        eventId: updated.eventId || draft.eventId,
+        calendarId: updated.calendarId || draft.calendarId,
+        start_time: updated.start_time || draft.start_time,
+        end_time: updated.end_time || draft.end_time,
+        location: updated.location ?? draft.location,
+        description: updated.description ?? draft.description,
+      };
+
+      setDraft(nextContent);
+      setDoc?.({
+        ...doc,
+        title: updated.title || doc.title,
+        content: nextContent,
+        url: updated.url || doc.url,
+        previewUrl: updated.embedUrl || doc.previewUrl,
+      });
+      setSaveState('saved');
+    } catch (err: unknown) {
+      setSaveState('error');
+      setSaveError(String((err as Error)?.message || 'Failed to update calendar event'));
+    }
+  };
+
+  return (
+    <div className="app-surface live-app">
+      <div className="app-titlebar" style={{ borderColor: APPS.calendar.accent }}>
+        <span className="app-title-read" style={{ color: APPS.calendar.accent }}>{doc.title}</span>
+        {doc.url ? (
+          <a className="app-live-link" href={doc.url} target="_blank" rel="noreferrer">open live</a>
+        ) : (
+          <span className="app-saved">calendar event</span>
+        )}
+      </div>
+
+      <div className="gmail-live" role="region" aria-label="calendar event editor">
+        <div className="gmail-live-head">
+          <div className="gmail-live-title">calendar</div>
+          <div className="gmail-live-mailbox">edit event inside panel</div>
+        </div>
+        <div className="gmail-save-state">
+          {saveState === 'saving' && 'saving...'}
+          {saveState === 'saved' && 'saved'}
+          {saveState === 'error' && (saveError || 'save failed')}
+          {saveState === 'idle' && (draft.details || 'Edit details and click Save')}
+        </div>
+
+        <div className="gmail-editor">
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Title</span>
+            <input
+              className="gmail-edit-input"
+              value={draft.summary || ''}
+              onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Start</span>
+            <input
+              type="datetime-local"
+              className="gmail-edit-input"
+              value={toLocalInputValue(draft.start_time)}
+              onChange={(e) => setDraft({ ...draft, start_time: fromLocalInputValue(e.target.value) })}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">End</span>
+            <input
+              type="datetime-local"
+              className="gmail-edit-input"
+              value={toLocalInputValue(draft.end_time)}
+              onChange={(e) => setDraft({ ...draft, end_time: fromLocalInputValue(e.target.value) })}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Location</span>
+            <input
+              className="gmail-edit-input"
+              value={draft.location || ''}
+              onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <label className="gmail-edit-field gmail-edit-field-body">
+            <span className="gmail-edit-label">Description</span>
+            <textarea
+              className="gmail-edit-textarea"
+              value={draft.description || ''}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <div className="gmail-editor-actions">
+            <button
+              type="button"
+              className="gmail-send-btn"
+              onClick={handleSave}
+              disabled={!canSave || saveState === 'saving'}
+            >
+              {saveState === 'saving' ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+
+        <div className="live-preview-shell" style={{ marginTop: 10 }}>
+          {doc.previewUrl ? (
+            <iframe
+              className="live-preview-frame live-preview-frame-calendar"
+              src={doc.previewUrl}
+              title={'Google Calendar: ' + doc.title}
+              referrerPolicy="no-referrer-when-downgrade"
+              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+            />
+          ) : (
+            <div className="live-preview-empty">
+              <div className="form-body">
+                <div className="form-desc">{draft.details || 'Calendar live preview'}</div>
+                <div className="form-q">
+                  <div className="form-q-num" style={{ color: APPS.calendar.accent }}>1.</div>
+                  <div className="form-q-body">
+                    <div className="form-q-text">{draft.summary}</div>
+                    <div className="form-q-type">Open live to view event details in Google Calendar.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SitesApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) => void }) {
   const content = doc.content as SitesContent;
   return (
@@ -939,10 +1175,11 @@ function TweaksPanel({ tweaks, setTweaks, visible }: { tweaks: Tweaks; setTweaks
 // ── Main component ────────────────────────────────────────────────────────
 const APP_COMPONENTS: Record<AppKey, React.FC<{ doc: DocState; setDoc: (d: DocState | null) => void }>> = {
   docs: DocsApp, sheets: SheetsApp, slides: SlidesApp, gmail: GmailApp,
-  forms: FormsApp, sites: SitesApp, classroom: ClassroomApp, drive: DriveApp,
+  forms: FormsApp, calendar: CalendarApp, sites: SitesApp, classroom: ClassroomApp, drive: DriveApp,
 };
 
-export function Terminal() {
+export function Terminal({ onLogout }: { onLogout?: () => void } = {}) {
+  void onLogout;
   const [tweaks, setTweaks] = useState<Tweaks>({ density: 'cozy', chrome: true, sidebar: 'right', paneWidth: 540 });
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState('');

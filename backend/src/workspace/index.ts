@@ -3,6 +3,8 @@ export {
 	extractGmailDraftIdFromUrl,
 	getActiveWorkspace,
 	updateActiveWorkspace,
+	type ActiveApp,
+	type ActiveCalendarEventRef,
 	type ActiveGmailDraftRef,
 	type ActiveFileRef,
 	type ActiveWorkspace,

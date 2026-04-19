@@ -24,9 +24,18 @@ function chooseAppFromActiveContext(command: string, active: ReturnType<typeof g
 	const explicitAppMention = /\b(gmail|email|mail|draft|doc|document|sheet|spreadsheet|slide|slides|presentation|calendar|form|drive|file)\b/.test(text);
 	if (explicitAppMention) return null;
 
+	if (active.activeApp === 'gmail' && active.gmailDraft) return 'gmail';
+	if (active.activeApp === 'calendar' && active.calendarEvent) return 'calendar';
+	if (active.activeApp === 'docs' && active.document) return 'docs';
+	if (active.activeApp === 'sheets' && active.spreadsheet) return 'sheets';
+	if (active.activeApp === 'slides' && active.presentation) return 'slides';
+
 	// Prefer the currently active Gmail draft for ambiguous edit requests.
 	if (active.gmailDraft) {
 		return 'gmail';
+	}
+	if (active.calendarEvent) {
+		return 'calendar';
 	}
 
 	if (active.document) {
@@ -47,6 +56,14 @@ async function syncActiveFileFromResult(
 	actionName: string,
 	url: string | undefined,
 	title: string | undefined,
+	result: {
+		eventId?: string;
+		calendarId?: string;
+		start_time?: string;
+		end_time?: string;
+		location?: string;
+		description?: string;
+	},
 	oauthClient: unknown,
 ) {
 	const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
@@ -61,6 +78,7 @@ async function syncActiveFileFromResult(
 				? prev.document.title
 				: (title ?? prev.document?.title ?? 'Untitled');
 		patch.document = { id: workspaceFileId, title: nextTitle };
+		patch.activeApp = 'docs';
 	}
 	if (workspaceFileId && (actionName === 'create_spreadsheet' || actionName === 'edit_spreadsheet')) {
 		const nextTitle =
@@ -68,6 +86,7 @@ async function syncActiveFileFromResult(
 				? prev.spreadsheet.title
 				: (title ?? prev.spreadsheet?.title ?? 'Untitled');
 		patch.spreadsheet = { id: workspaceFileId, title: nextTitle };
+		patch.activeApp = 'sheets';
 	}
 	if (workspaceFileId && (actionName === 'create_presentation' || actionName === 'edit_presentation')) {
 		const nextTitle =
@@ -75,6 +94,7 @@ async function syncActiveFileFromResult(
 				? prev.presentation.title
 				: (title ?? prev.presentation?.title ?? 'Untitled');
 		patch.presentation = { id: workspaceFileId, title: nextTitle };
+		patch.activeApp = 'slides';
 	}
 	if (gmailDraftId && (actionName === 'create_draft' || actionName === 'edit_draft')) {
 		try {
@@ -100,12 +120,26 @@ async function syncActiveFileFromResult(
 					message: prev.gmailDraft?.message ?? '',
 					to: prev.gmailDraft?.to ?? '',
 				};
+			patch.activeApp = 'gmail';
 		} catch (error) {
 			console.error('[parse] failed to refresh Gmail draft context:', error);
 		}
 	}
 	if (actionName === 'send_email') {
 		patch.gmailDraft = null;
+		if (prev.activeApp === 'gmail') patch.activeApp = null;
+	}
+	if ((actionName === 'create_event' || actionName === 'update_event') && result.eventId) {
+		patch.calendarEvent = {
+			id: result.eventId,
+			calendarId: result.calendarId ?? prev.calendarEvent?.calendarId ?? 'primary',
+			title: title ?? prev.calendarEvent?.title ?? 'Untitled Event',
+			start_time: result.start_time,
+			end_time: result.end_time,
+			location: result.location,
+			description: result.description,
+		};
+		patch.activeApp = 'calendar';
 	}
 	if (Object.keys(patch).length) updateActiveWorkspace(sessionId, patch);
 }
@@ -129,9 +163,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		// Step 2: App-specific handler takes over
 		const result = await executeAppCommand(app, command.trim(), req.oauthClient, active, process.env.GEMINI_API_KEY);
 
-		if (result?.url) {
-			await syncActiveFileFromResult(sessionId, result.action, result.url, result.title, req.oauthClient);
-		}
+		await syncActiveFileFromResult(sessionId, result.action, result.url, result.title, result, req.oauthClient);
 
 		return res.json(result);
 	} catch (error) {
