@@ -16,9 +16,10 @@ export async function executeAppCommand(
 	oauthClient: unknown,
 	active: ActiveWorkspace,
 	apiKey: string | undefined,
+	sessionId?: string,
 ): Promise<ParseRouteResult> {
 	switch (app) {
-		case 'docs':     return handleDocsCommand(command, oauthClient, active, apiKey);
+		case 'docs':     return handleDocsCommand(command, oauthClient, active, apiKey, sessionId);
 		case 'sheets':   return handleSheetsCommand(command, oauthClient, active, apiKey);
 		case 'slides':   return handleSlidesCommand(command, oauthClient, active, apiKey);
 		case 'gmail':    return handleGmailCommand(command, oauthClient, active, apiKey);

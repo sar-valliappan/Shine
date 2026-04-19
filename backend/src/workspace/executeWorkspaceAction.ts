@@ -2,7 +2,6 @@ import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
 import { generateEditedEmailBody, generateEmailBody } from '../prompts/gmailMessageGenerator.js';
 import { executeDocumentAction } from './documents.js';
-import { executePresentationAction } from './presentations.js';
 import { executeCalendarAction } from './calendar.js';
 import type { ParseRouteResult } from './types.js';
 import { parseRawEmailMessage } from './gmailDraft.js';
@@ -84,7 +83,7 @@ export async function executeWorkspaceAction(
 
 		case 'create_presentation':
 		case 'edit_presentation':
-			return executePresentationAction(action, oauthClient, apiKey);
+			throw new Error('Slides actions should be routed through handleSlidesCommand directly');
 
 		case 'share_file': {
 			const fileId = action.fileId?.trim() || (action.fileUrl ? extractFileIdFromWorkspaceUrl(action.fileUrl) : null);
