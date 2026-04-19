@@ -58,6 +58,7 @@ interface Tweaks {
   density: 'cozy' | 'compact';
   chrome: boolean;
   sidebar: 'right' | 'below';
+  paneWidth: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -350,11 +351,13 @@ function LiveWorkspaceApp({
   accent,
   label,
   fallback,
+  frameClassName,
 }: {
   doc: DocState;
   accent: string;
   label: string;
   fallback: React.ReactNode;
+  frameClassName?: string;
 }) {
   const liveUrl = doc.previewUrl || doc.url;
   return (
@@ -370,7 +373,7 @@ function LiveWorkspaceApp({
       <div className="live-preview-shell">
         {liveUrl ? (
           <iframe
-            className="live-preview-frame"
+            className={'live-preview-frame' + (frameClassName ? ` ${frameClassName}` : '')}
             src={liveUrl}
             title={label + ': ' + doc.title}
             referrerPolicy="no-referrer-when-downgrade"
@@ -391,6 +394,7 @@ function DocsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
       doc={doc}
       accent={APPS.docs.accent}
       label="Google Docs"
+      frameClassName="live-preview-frame-docs"
       fallback={
         <div className="docs-page">
           <h1 className="docs-title">{doc.title}</h1>
@@ -994,7 +998,7 @@ const APP_COMPONENTS: Record<AppKey, React.FC<{ doc: DocState; setDoc: (d: DocSt
 };
 
 export function Terminal() {
-  const [tweaks, setTweaks] = useState<Tweaks>({ density: 'cozy', chrome: true, sidebar: 'right' });
+  const [tweaks, setTweaks] = useState<Tweaks>({ density: 'cozy', chrome: true, sidebar: 'right', paneWidth: 540 });
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
@@ -1006,6 +1010,7 @@ export function Terminal() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const resizingRef = useRef(false);
   const accent = openDoc ? accentFor(openDoc.app) : DEFAULT_ACCENT;
 
   useEffect(() => {
@@ -1209,10 +1214,35 @@ export function Terminal() {
   const AppComp = openDoc ? APP_COMPONENTS[openDoc.app] : null;
   const multi = isMultiApp(openDoc?.app);
   const layoutCls = ['layout', openDoc ? 'has-app' : '', 'sidebar-' + tweaks.sidebar].filter(Boolean).join(' ');
+  const layoutStyle = tweaks.sidebar === 'right' ? ({ ['--pane-width' as any]: `${tweaks.paneWidth}px` }) : undefined;
+
+  const startPaneResize = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tweaks.sidebar !== 'right' || !openDoc) return;
+    e.preventDefault();
+    resizingRef.current = true;
+    document.body.classList.add('pane-resizing');
+
+    const onMouseMove = (event: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const next = window.innerWidth - event.clientX;
+      const clamped = Math.max(360, Math.min(860, next));
+      setTweaks((prev) => ({ ...prev, paneWidth: clamped }));
+    };
+
+    const stopResize = () => {
+      resizingRef.current = false;
+      document.body.classList.remove('pane-resizing');
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopResize);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stopResize);
+  };
 
   return (
     <WindowChrome showChrome={tweaks.chrome} openDoc={openDoc}>
-      <div className={layoutCls}>
+      <div className={layoutCls} style={layoutStyle}>
         <div className={'terminal-pane density-' + tweaks.density} ref={scrollRef}>
           {blocks.length === 0 && !openDoc && (
             <div className="welcome">
@@ -1245,6 +1275,9 @@ export function Terminal() {
             <Suggestions onPick={(s) => { setInput(s); runCommand(s); }} />
           )}
         </div>
+        {openDoc && AppComp && (
+          <div className="pane-resizer" onMouseDown={startPaneResize} role="separator" aria-orientation="vertical" />
+        )}
         {openDoc && AppComp && (
           <div className="app-pane" onClick={(e) => e.stopPropagation()}>
             <div className="app-pane-header">

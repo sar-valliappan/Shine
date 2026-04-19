@@ -53,36 +53,27 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 			const title = action.title?.trim();
 			const headers = action.headers || [];
 			const rows = action.rows || [];
-			if (!title || headers.length === 0) {
-				throw new Error('create_spreadsheet requires title and headers');
-			}
+			if (!title || headers.length === 0) throw new Error('create_spreadsheet requires title and headers');
 
 			const toCell = (val: unknown) => {
 				if (typeof val === 'number') return { userEnteredValue: { numberValue: val } };
 				const str = String(val ?? '');
-				if (action.include_formulas && str.startsWith('=')) {
-					return { userEnteredValue: { formulaValue: str } };
-				}
+				if (action.include_formulas && str.startsWith('=')) return { userEnteredValue: { formulaValue: str } };
 				return { userEnteredValue: { stringValue: str } };
 			};
 
 			const spreadsheet = await sheets.spreadsheets.create({
 				requestBody: {
 					properties: { title },
-					sheets: [
-						{
-							data: [
-								{
-									startRow: 0,
-									startColumn: 0,
-									rowData: [
-										{ values: headers.map((h) => toCell(h)) },
-										...rows.map((row) => ({ values: row.map((cell) => toCell(cell)) })),
-									],
-								},
+					sheets: [{
+						data: [{
+							startRow: 0, startColumn: 0,
+							rowData: [
+								{ values: headers.map((h) => toCell(h)) },
+								...rows.map((row) => ({ values: row.map((cell) => toCell(cell)) })),
 							],
-						},
-					],
+						}],
+					}],
 				},
 			});
 
@@ -99,29 +90,25 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 		}
 
 		case 'create_presentation': {
-			const slides = google.slides({ version: 'v1', auth: oauthClient });
 			const title = action.title?.trim();
 			if (!title) throw new Error('create_presentation requires title');
+			const prompts = action.slide_prompts?.length ? action.slide_prompts : ['Title slide', 'Key points', 'Next steps'];
 
-			const created = await slides.presentations.create({ requestBody: { title } });
-			const presentationId = created.data.presentationId;
-			if (!presentationId) throw new Error('Failed to create presentation');
+			const { url, slideCount } = await createStyledPresentation(title, prompts, oauthClient, apiKey);
 
 			return {
 				action: 'create_presentation',
 				title,
-				url: `https://docs.google.com/presentation/d/${presentationId}/edit`,
+				url,
 				fileType: 'slides',
-				summary: `Created Google Slides presentation: ${title}`,
+				summary: `Created "${title}" — ${slideCount} styled slides`,
 			};
 		}
 
 		case 'create_event': {
 			const calendar = google.calendar({ version: 'v3', auth: oauthClient });
 			const summary = action.summary?.trim();
-			if (!summary || !action.start_time || !action.end_time) {
-				throw new Error('create_event requires summary, start_time, end_time');
-			}
+			if (!summary || !action.start_time || !action.end_time) throw new Error('create_event requires summary, start_time, end_time');
 
 			const event = await calendar.events.insert({
 				calendarId: 'primary',
@@ -137,7 +124,7 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 			return {
 				action: 'create_event',
 				title: summary,
-				url: event.data.htmlLink,
+				url: event.data.htmlLink ?? '',
 				fileType: 'calendar',
 				summary: `Created calendar event: ${summary}`,
 			};
@@ -146,9 +133,7 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 		case 'create_form': {
 			const forms = google.forms({ version: 'v1', auth: oauthClient });
 			const title = action.title?.trim();
-			if (!title || !action.questions?.length) {
-				throw new Error('create_form requires title and questions');
-			}
+			if (!title || !action.questions?.length) throw new Error('create_form requires title and questions');
 
 			const form = await forms.forms.create({ requestBody: { info: { title } } });
 			const formId = form.data.formId;
@@ -168,22 +153,13 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 			const to = action.to?.trim();
 			const subject = action.subject?.trim();
 			const body = action.body_prompt?.trim();
-			if (!to || !subject || !body) {
-				throw new Error('create_draft requires to, subject, body_prompt');
-			}
+			if (!to || !subject || !body) throw new Error('create_draft requires to, subject, body_prompt');
 
 			const raw = Buffer.from(
-				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n')
-			)
-				.toString('base64')
-				.replace(/\+/g, '-')
-				.replace(/\//g, '_')
-				.replace(/=+$/g, '');
+				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n'),
+			).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
-			const draft = await gmail.users.drafts.create({
-				userId: 'me',
-				requestBody: { message: { raw } },
-			});
+			const draft = await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
 
 			return {
 				action: 'create_draft',
@@ -199,17 +175,11 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 			const to = action.to?.trim();
 			const subject = action.subject?.trim();
 			const body = action.body_prompt?.trim();
-			if (!to || !subject || !body) {
-				throw new Error('send_email requires to, subject, body_prompt');
-			}
+			if (!to || !subject || !body) throw new Error('send_email requires to, subject, body_prompt');
 
 			const raw = Buffer.from(
-				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n')
-			)
-				.toString('base64')
-				.replace(/\+/g, '-')
-				.replace(/\//g, '_')
-				.replace(/=+$/g, '');
+				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n'),
+			).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
 			await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
 
@@ -315,6 +285,88 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 				fileType: 'system',
 				summary: action.question,
 			};
+
+		case 'edit_presentation': {
+			const fileId = action.fileId;
+			if (!fileId) throw new Error('No active presentation to edit. Create one first.');
+
+			const url = `https://docs.google.com/presentation/d/${fileId}/edit`;
+
+			if (action.operation === 'add_slide') {
+				const { title } = await addSlide(fileId, action.slide_prompt ?? 'New slide', oauthClient, apiKey);
+				return { action: 'edit_presentation', title, url, fileType: 'slides', summary: `Added slide: "${title}"` };
+			}
+
+			if (action.operation === 'edit_slide') {
+				const idx = action.slide_index ?? 0;
+				await editSlide(fileId, idx, { title: action.title, body: action.body }, oauthClient);
+				return { action: 'edit_presentation', title: action.title ?? `Slide ${idx + 1}`, url, fileType: 'slides', summary: `Updated slide ${idx + 1}` };
+			}
+
+			if (action.operation === 'delete_slide') {
+				const idx = action.slide_index ?? 0;
+				await deleteSlide(fileId, idx, oauthClient);
+				return { action: 'edit_presentation', title: `Slide ${idx + 1} deleted`, url, fileType: 'slides', summary: `Deleted slide ${idx + 1}` };
+			}
+
+			throw new Error(`Unknown edit_presentation operation: ${action.operation}`);
+		}
+
+		case 'edit_document': {
+			const fileId = action.fileId;
+			if (!fileId) throw new Error('No active document to edit. Create one first.');
+
+			const docs = google.docs({ version: 'v1', auth: oauthClient });
+			const heading = action.heading?.trim();
+			const content = action.content_prompt?.trim();
+			if (!heading || !content) throw new Error('edit_document requires heading and content_prompt');
+
+			const text = `\n\n${heading}\n${content}`;
+			await docs.documents.batchUpdate({
+				documentId: fileId,
+				requestBody: { requests: [{ insertText: { endOfSegmentLocation: {}, text } }] },
+			});
+
+			return {
+				action: 'edit_document',
+				title: heading,
+				url: `https://docs.google.com/document/d/${fileId}/edit`,
+				fileType: 'doc',
+				summary: `Added section "${heading}"`,
+			};
+		}
+
+		case 'edit_spreadsheet': {
+			const fileId = action.fileId;
+			if (!fileId) throw new Error('No active spreadsheet to edit. Create one first.');
+
+			const sheets = google.sheets({ version: 'v4', auth: oauthClient });
+			const url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
+
+			if (action.operation === 'add_row') {
+				const row = action.row ?? [];
+				await sheets.spreadsheets.values.append({
+					spreadsheetId: fileId,
+					range: 'Sheet1',
+					valueInputOption: 'USER_ENTERED',
+					requestBody: { values: [row] },
+				});
+				return { action: 'edit_spreadsheet', title: 'Row added', url, fileType: 'sheet', summary: `Added row: ${row.join(', ')}` };
+			}
+
+			if (action.operation === 'add_column') {
+				const header = action.header?.trim() ?? 'New Column';
+				const meta = await sheets.spreadsheets.get({ spreadsheetId: fileId });
+				const sheetId = meta.data.sheets?.[0]?.properties?.sheetId ?? 0;
+				await sheets.spreadsheets.batchUpdate({
+					spreadsheetId: fileId,
+					requestBody: { requests: [{ appendDimension: { sheetId, dimension: 'COLUMNS', length: 1 } }] },
+				});
+				return { action: 'edit_spreadsheet', title: header, url, fileType: 'sheet', summary: `Added column "${header}"` };
+			}
+
+			throw new Error(`Unknown edit_spreadsheet operation: ${action.operation}`);
+		}
 	}
 }
 

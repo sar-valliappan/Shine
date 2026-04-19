@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
+import type { ActiveFile } from './sessionContext.js';
 
 const DEFAULT_MODEL_CANDIDATES = [
 	'gemma-3-27b-it',
