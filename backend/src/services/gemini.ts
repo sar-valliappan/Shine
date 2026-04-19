@@ -1,6 +1,10 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { google } from 'googleapis';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import { appRouterPrompt } from '../prompts/appRouter.js';
+import { extractDocumentContext } from './googleDocsBodyHelpers.js';
+import { buildAppRouterPrompt } from '../prompts/appRouter.js';
+import { buildFormsPrompt } from '../prompts/formsPrompt.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
 import type { AppName } from '../workspace/app-router.js';
@@ -23,6 +27,9 @@ function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	if (active.presentation) {
 		lines.push(`Google Slides — title: "${active.presentation.title}", file id: ${active.presentation.id}`);
 	}
+	if (active.form) {
+		lines.push(`Google Form — title: "${active.form.title}", file id: ${active.form.id}`);
+	}
 	if (active.gmailDraft) {
 		lines.push(
 			[
@@ -35,9 +42,25 @@ function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 			].join('\n')
 		);
 	}
+	if (active.calendarEvent) {
+		lines.push(
+			[
+				`Calendar Event — event id: ${active.calendarEvent.id}`,
+				`calendar id: ${active.calendarEvent.calendarId}`,
+				`title: ${active.calendarEvent.title || '(untitled)'}`,
+				`start: ${active.calendarEvent.start_time || '(unknown)'}`,
+				`end: ${active.calendarEvent.end_time || '(unknown)'}`,
+				`location: ${active.calendarEvent.location || '(none)'}`,
+				'description:',
+				indentBlock(active.calendarEvent.description || '(empty)'),
+			].join('\n')
+		);
+	}
 	if (!lines.length) return '';
 	return `\n\nActive workspace — the user may refer to these without naming them:\n${lines.map((l) => `- ${l}`).join('\n')}
 When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation. For the open Gmail draft, use edit_draft and include draft_id when available.
+For share or invite requests on an open document, spreadsheet, presentation, or form, use share_file and include the active file id from context.
+For the open calendar event, always use create_event with the updated summary/start_time/end_time/location/description; the backend will apply that as an edit to the active event unless the user explicitly asks to create a new event.
 If the command is an edit/update request without explicitly naming another app, apply it to the currently active item type from this context.`;
 }
 
@@ -46,6 +69,16 @@ const DEFAULT_MODEL_CANDIDATES = [
 	'gemma-3-12b-it',
 	'gemma-3-4b-it',
 ] as const;
+
+const EMPTY_ACTIVE_WORKSPACE: ActiveWorkspace = {
+	document: null,
+	spreadsheet: null,
+	presentation: null,
+	form: null,
+	gmailDraft: null,
+	calendarEvent: null,
+	activeApp: null,
+};
 
 function extractFirstJsonObject(text: string): string {
 	const start = text.indexOf('{');
@@ -87,12 +120,8 @@ function parseJsonPayload(text: string): WorkspaceAction {
 	return parsed;
 }
 
-export async function parseCommandWithGemini(
-	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null },
-): Promise<ParseResult> {
+async function generateParsedActionFromPrompt(fullPrompt: string): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
-
 	if (!apiKey) {
 		return {
 			action: { action: 'clarify', question: 'The AI service is not configured. Please contact support.' },
@@ -101,11 +130,6 @@ export async function parseCommandWithGemini(
 	}
 
 	const client = new GoogleGenerativeAI(apiKey);
-
-	const contextBlock = formatActiveWorkspaceContext(active);
-
-	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
-
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel
 		? [configuredModel, ...DEFAULT_MODEL_CANDIDATES.filter((m) => m !== configuredModel)]
@@ -117,7 +141,7 @@ export async function parseCommandWithGemini(
 	for (const modelName of modelCandidates) {
 		try {
 			const model = client.getGenerativeModel({ model: modelName }, { apiVersion: 'v1beta' });
-			const result = await model.generateContent(prompt);
+			const result = await model.generateContent(fullPrompt);
 			text = result.response.text();
 			lastError = null;
 			break;
@@ -147,14 +171,70 @@ export async function parseCommandWithGemini(
 	}
 }
 
+export async function parseCommandWithGemini(
+	command: string,
+	active: ActiveWorkspace = EMPTY_ACTIVE_WORKSPACE,
+): Promise<ParseResult> {
+	const contextBlock = formatActiveWorkspaceContext(active);
+	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
+	return generateParsedActionFromPrompt(prompt);
+}
+
+/**
+ * Docs-specific parse: fetches the live document body, injects structured context so Gemini can
+ * resolve find_text / section_heading against real headings and indices. Falls back to the generic
+ * parser if no active doc or if the Docs API fetch fails.
+ */
+export async function parseDocsCommandWithContext(
+	command: string,
+	active: ActiveWorkspace,
+	oauthClient: unknown,
+): Promise<ParseResult> {
+	if (!active.document) return parseCommandWithGemini(command, active);
+	try {
+		const docs = google.docs({ version: 'v1', auth: oauthClient as any });
+		const res = await docs.documents.get({ documentId: active.document.id });
+		const extracted = extractDocumentContext(res.data.body as { content?: unknown[] }, active.document.title);
+
+		const docBlock = [
+			'The following is the live structure of the active document with exact text and API indices.',
+			'Before filling any field, read this structure and resolve every user reference against it.',
+			'"The title" = the TITLE paragraph text.',
+			'"The summary section" = the HEADING whose quoted text contains "Summary" — use delete_section with that exact heading text, not delete_text.',
+			'"Bold the Biology header" = style_text with find_text set to the exact HEADING text containing "Biology".',
+			'Never guess. find_text must be verbatim text that appears in the structure below.',
+			'',
+			'--- ACTIVE GOOGLE DOC BODY ---',
+			extracted.contextString,
+			'--- END DOCUMENT ---',
+		].join('\n');
+
+		const contextBlock = formatActiveWorkspaceContext(active);
+		const fullPrompt = `${commandParserPrompt}\n${docBlock}${contextBlock}\n\nUser command:\n${command}`;
+		return generateParsedActionFromPrompt(fullPrompt);
+	} catch (error) {
+		console.error('[gemini] parseDocsCommandWithContext: document fetch failed, fallback:', error);
+		return parseCommandWithGemini(command, active);
+	}
+}
+
+export async function parseFormsCommand(command: string, active: ActiveWorkspace): Promise<ParseResult> {
+	const activeFormContext = active.form
+		? `Active form — title: "${active.form.title}", file id: ${active.form.id}`
+		: '';
+	const prompt = buildFormsPrompt(command, activeFormContext);
+	return generateParsedActionFromPrompt(prompt);
+}
+
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = EMPTY_ACTIVE_WORKSPACE): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 
 	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${appRouterPrompt}${command}`;
+	const activeContext = formatActiveWorkspaceContext(active);
+	const prompt = buildAppRouterPrompt(command, activeContext);
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel
