@@ -13,6 +13,8 @@ router.get('/google', (req: Request, res: Response) => {
     const authUrl = client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
+      include_granted_scopes: true,
+      prompt: 'consent',
     });
     res.redirect(authUrl);
   } catch (error) {

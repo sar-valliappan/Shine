@@ -45,6 +45,80 @@ export const checkAuthStatus = async (): Promise<boolean> => {
 
 export const getAuthStatus = checkAuthStatus;
 
+export interface GmailDraftSummary {
+  id: string;
+  to: string;
+  subject: string;
+  snippet: string;
+}
+
+export interface GmailOverview {
+  drafts: GmailDraftSummary[];
+  summary?: string;
+}
+
+export interface GmailDraftDetail {
+  id: string;
+  to: string;
+  subject: string;
+  body: string;
+  snippet?: string;
+}
+
+export const getGmailOverview = async (): Promise<GmailOverview> => {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/overview`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed with status ${response.status}`);
+  }
+
+  return payload as GmailOverview;
+};
+
+export const getGmailDraft = async (draftId: string): Promise<GmailDraftDetail> => {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed with status ${response.status}`);
+  }
+
+  return payload as GmailDraftDetail;
+};
+
+export const updateGmailDraft = async (draftId: string, payload: { to: string; subject: string; body: string }): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed with status ${response.status}`);
+  }
+};
+
+export const sendGmailDraft = async (draftId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/drafts/${encodeURIComponent(draftId)}/send`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed with status ${response.status}`);
+  }
+};
+
 export const logout = async (): Promise<void> => {
   await fetch(`${API_BASE_URL}/api/auth/logout`, { credentials: 'include' });
 };

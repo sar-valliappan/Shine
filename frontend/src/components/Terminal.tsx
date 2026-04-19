@@ -3,6 +3,11 @@ import {
   parseCommand as parseWorkspaceCommand,
   getAuthStatus,
   getGoogleAuthUrl,
+  getGmailOverview,
+  type GmailOverview,
+  getGmailDraft,
+  updateGmailDraft,
+  sendGmailDraft,
 } from '../services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -92,7 +97,7 @@ function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
     // Forms use /viewform for embedded viewing
     return url.replace(/\/edit(?:\?.*)?$/, '/viewform?embedded=true');
   }
-  
+
   // For docs, sheets, slides - return the edit URL which supports live embedding
   return url;
 }
@@ -456,19 +461,254 @@ function SlidesApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   );
 }
 
-function GmailApp({ doc }: { doc: DocState }) {
+function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null) => void }) {
   const content = doc.content as GmailContent;
+  const [overview, setOverview] = useState<GmailOverview | null>(null);
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<GmailContent | null>(null);
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const lastSavedRef = useRef<string>('');
+
+  const extractDraftId = (url?: string): string | null => {
+    if (!url) return null;
+    const match = url.match(/#drafts\/([^/?]+)/i);
+    return match?.[1] || null;
+  };
+
+  useEffect(() => {
+    const nextDraftId = extractDraftId(doc.url);
+    setDraftId(nextDraftId);
+
+    if (nextDraftId) {
+      setLoadingOverview(false);
+      setOverview(null);
+      setOverviewError(null);
+      return;
+    }
+
+    let mounted = true;
+    setLoadingOverview(true);
+    setOverviewError(null);
+
+    getGmailOverview()
+      .then((data) => {
+        if (!mounted) return;
+        setOverview(data);
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        setOverviewError(String((err as Error)?.message || 'failed to load live gmail data'));
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoadingOverview(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [doc.url, doc.title]);
+
+  useEffect(() => {
+    if (!draftId) {
+      setDraft(null);
+      setLoadingDraft(false);
+      setSaveState('idle');
+      setSaveError(null);
+      setSendState('idle');
+      setSendError(null);
+      lastSavedRef.current = '';
+      return;
+    }
+
+    let mounted = true;
+    setLoadingDraft(true);
+    setSaveError(null);
+    setSendState('idle');
+    setSendError(null);
+
+    getGmailDraft(draftId)
+      .then((data) => {
+        if (!mounted) return;
+        const loadedDraft = {
+          to: data.to,
+          subject: data.subject,
+          body: data.body,
+        };
+        setDraft(loadedDraft);
+        const fingerprint = JSON.stringify(loadedDraft);
+        lastSavedRef.current = fingerprint;
+        setSaveState('saved');
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        setSaveState('error');
+        setSaveError(String((err as Error)?.message || 'failed to load draft'));
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoadingDraft(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [draftId]);
+
+  useEffect(() => {
+    if (!draftId || !draft) return;
+    const fingerprint = JSON.stringify(draft);
+    if (fingerprint === lastSavedRef.current) return;
+
+    setSaveState('saving');
+    setSaveError(null);
+
+    const timer = setTimeout(() => {
+      updateGmailDraft(draftId, draft)
+        .then(() => {
+          lastSavedRef.current = fingerprint;
+          setSaveState('saved');
+        })
+        .catch((err: unknown) => {
+          setSaveState('error');
+          setSaveError(String((err as Error)?.message || 'failed to save draft'));
+        });
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [draftId, draft]);
+
+  const activeDraft = draft || content;
+
+  const handleSendDraft = async () => {
+    if (!draftId || !activeDraft || loadingDraft) return;
+
+    try {
+      setSendState('sending');
+      setSendError(null);
+
+      // Ensure latest edits are persisted before sending.
+      setSaveState('saving');
+      await updateGmailDraft(draftId, activeDraft);
+      lastSavedRef.current = JSON.stringify(activeDraft);
+      setSaveState('saved');
+
+      await sendGmailDraft(draftId);
+      setSendState('sent');
+      setTimeout(() => {
+        setDoc?.(null);
+      }, 250);
+    } catch (err: unknown) {
+      setSendState('error');
+      setSendError(String((err as Error)?.message || 'failed to send draft'));
+    }
+  };
+
   return (
     <div className="app-surface">
       <div className="app-titlebar" style={{ borderColor: APPS.gmail.accent }}>
-        <span className="app-title-read" style={{ color: APPS.gmail.accent }}>new message</span>
-        <span className="app-saved">draft</span>
+        <span className="app-title-read" style={{ color: APPS.gmail.accent }}>{doc.title}</span>
+        {doc.url ? (
+          <a className="app-live-link" href={doc.url} target="_blank" rel="noreferrer">open live</a>
+        ) : (
+          <span className="app-saved">gmail api</span>
+        )}
       </div>
-      <div className="gmail-compose">
-        <div className="g-field"><span className="g-key">to</span><span className="g-val">{content.to}</span></div>
-        <div className="g-field"><span className="g-key">subject</span><span className="g-val">{content.subject}</span></div>
-        <div className="g-divider" />
-        <pre className="g-body">{content.body}</pre>
+      <div className="gmail-live" role="region" aria-label="live gmail data">
+        <div className="gmail-live-head">
+          <div className="gmail-live-title">gmail drafts</div>
+          <div className="gmail-live-mailbox">
+            {draftId ? `draft ${draftId.slice(0, 8)}` : 'live via gmail api'}
+          </div>
+        </div>
+
+        {draftId && (
+          <div className="gmail-save-state">
+            {loadingDraft && 'loading draft...'}
+            {!loadingDraft && saveState === 'saving' && 'saving...'}
+            {!loadingDraft && saveState === 'saved' && 'saved'}
+            {!loadingDraft && saveState === 'error' && (saveError || 'save failed')}
+            {!loadingDraft && sendState === 'sending' && ' • sending...'}
+            {!loadingDraft && sendState === 'sent' && ' • sent'}
+            {!loadingDraft && sendState === 'error' && ` • ${sendError || 'send failed'}`}
+          </div>
+        )}
+
+        {draftId && !loadingDraft && (
+          <div className="gmail-editor">
+            <label className="gmail-edit-field">
+              <span className="gmail-edit-label">To</span>
+              <input
+                className="gmail-edit-input"
+                value={activeDraft.to}
+                onChange={(e) => setDraft({ ...activeDraft, to: e.target.value })}
+                spellCheck={false}
+              />
+            </label>
+            <label className="gmail-edit-field">
+              <span className="gmail-edit-label">Subject</span>
+              <input
+                className="gmail-edit-input"
+                value={activeDraft.subject}
+                onChange={(e) => setDraft({ ...activeDraft, subject: e.target.value })}
+                spellCheck={false}
+              />
+            </label>
+            <label className="gmail-edit-field gmail-edit-field-body">
+              <span className="gmail-edit-label">Body</span>
+              <textarea
+                className="gmail-edit-textarea"
+                value={activeDraft.body}
+                onChange={(e) => setDraft({ ...activeDraft, body: e.target.value })}
+                spellCheck={false}
+              />
+            </label>
+            <div className="gmail-editor-actions">
+              <button
+                type="button"
+                className="gmail-send-btn"
+                onClick={handleSendDraft}
+                disabled={loadingDraft || saveState === 'saving' || sendState === 'sending'}
+              >
+                {sendState === 'sending' ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {loadingOverview && <div className="gmail-live-status">loading live gmail data...</div>}
+        {!loadingOverview && overviewError && <div className="gmail-live-status gmail-live-error">{overviewError}</div>}
+
+        {!draftId && !loadingOverview && !overviewError && overview && (
+          <div className="gmail-live-section">
+            <div className="gmail-live-section-title">recent drafts</div>
+            {overview.drafts.length === 0 && <div className="gmail-live-empty">no drafts found</div>}
+            {overview.drafts.map((d) => (
+              <div className="gmail-live-item" key={d.id}>
+                <div className="gmail-live-item-top">
+                  <span className="gmail-live-item-subject">{d.subject}</span>
+                  <span className="gmail-live-item-meta">to {d.to}</span>
+                </div>
+                <div className="gmail-live-item-snippet">{d.snippet || 'no preview text'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!draftId && !loadingOverview && !overview && !overviewError && (
+          <div className="gmail-compose">
+            <div className="g-field"><span className="g-key">to</span><span className="g-val">{content.to}</span></div>
+            <div className="g-field"><span className="g-key">subject</span><span className="g-val">{content.subject}</span></div>
+            <div className="g-divider" />
+            <pre className="g-body">{content.body}</pre>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -748,7 +988,7 @@ function TweaksPanel({ tweaks, setTweaks, visible }: { tweaks: Tweaks; setTweaks
 }
 
 // ── Main component ────────────────────────────────────────────────────────
-const APP_COMPONENTS: Record<AppKey, React.FC<{ doc: DocState; setDoc: (d: DocState) => void }>> = {
+const APP_COMPONENTS: Record<AppKey, React.FC<{ doc: DocState; setDoc: (d: DocState | null) => void }>> = {
   docs: DocsApp, sheets: SheetsApp, slides: SlidesApp, gmail: GmailApp,
   forms: FormsApp, sites: SitesApp, classroom: ClassroomApp, drive: DriveApp,
 };
