@@ -2,30 +2,35 @@ import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
+import { generateDocumentContent, buildDocRequests } from '../services/docsService.js';
 import type { WorkspaceAction } from '../types/actions.js';
 
 const router = Router();
 
-async function executeAction(action: WorkspaceAction, oauthClient: any) {
+async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: string | undefined) {
 	switch (action.action) {
 		case 'create_document': {
 			const docs = google.docs({ version: 'v1', auth: oauthClient });
 			const title = action.title?.trim();
-			const content = action.content_prompt?.trim();
-			if (!title || !content) {
-				throw new Error('create_document requires title and content_prompt');
-			}
+			const sections = (action as any).sections as string[] | undefined;
+			const contentPrompt =
+				action.content_prompt?.trim() ||
+				(sections?.length ? `Write a detailed document covering these sections: ${sections.join(', ')}` : '') ||
+				`Write a comprehensive document about: ${title}`;
+			if (!title) throw new Error('create_document requires title');
+
+			const markdown = apiKey
+				? await generateDocumentContent(title, contentPrompt, apiKey)
+				: `# ${title}\n\n${contentPrompt}`;
 
 			const doc = await docs.documents.create({ requestBody: { title } });
 			const documentId = doc.data.documentId;
 			if (!documentId) throw new Error('Failed to create document');
 
-			await docs.documents.batchUpdate({
-				documentId,
-				requestBody: {
-					requests: [{ insertText: { location: { index: 1 }, text: content } }],
-				},
-			});
+			const requests = buildDocRequests(markdown);
+			if (requests.length > 0) {
+				await docs.documents.batchUpdate({ documentId, requestBody: { requests } });
+			}
 
 			return {
 				action: 'create_document',
@@ -266,7 +271,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		}
 
 		const parsed = await parseCommandWithGemini(command.trim());
-		const result = await executeAction(parsed.action, req.oauthClient);
+		const result = await executeAction(parsed.action, req.oauthClient, process.env.GEMINI_API_KEY);
 		return res.json(result);
 	} catch (error) {
 		console.error('Parse route failed:', error);
