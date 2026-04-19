@@ -138,6 +138,74 @@ export function buildDocRequests(markdown: string): any[] {
   return requests;
 }
 
+/** Re-map batch requests built for index 1 so they apply at the end of an existing document. */
+export function shiftDocRequestsToEnd(requests: any[], endIndex: number): any[] {
+  return requests.map((r: any) => {
+    if (r.insertText?.location?.index !== undefined) {
+      return { ...r, insertText: { ...r.insertText, location: { index: endIndex } } };
+    }
+    if (r.updateParagraphStyle?.range) {
+      const offset = endIndex - 1;
+      return {
+        ...r,
+        updateParagraphStyle: {
+          ...r.updateParagraphStyle,
+          range: {
+            startIndex: r.updateParagraphStyle.range.startIndex + offset,
+            endIndex: r.updateParagraphStyle.range.endIndex + offset,
+          },
+        },
+      };
+    }
+    if (r.updateTextStyle?.range) {
+      const offset = endIndex - 1;
+      return {
+        ...r,
+        updateTextStyle: {
+          ...r.updateTextStyle,
+          range: {
+            startIndex: r.updateTextStyle.range.startIndex + offset,
+            endIndex: r.updateTextStyle.range.endIndex + offset,
+          },
+        },
+      };
+    }
+    if (r.createParagraphBullets?.range) {
+      const offset = endIndex - 1;
+      return {
+        ...r,
+        createParagraphBullets: {
+          ...r.createParagraphBullets,
+          range: {
+            startIndex: r.createParagraphBullets.range.startIndex + offset,
+            endIndex: r.createParagraphBullets.range.endIndex + offset,
+          },
+        },
+      };
+    }
+    return r;
+  });
+}
+
+/** Row-major cell insertion indices (inside each cell), after insertTable. */
+export function collectTableCellInsertionIndices(body: { content?: any[] } | undefined): number[] | null {
+  const content = body?.content;
+  if (!content) return null;
+  let lastTable: any = null;
+  for (const el of content) {
+    if (el.table) lastTable = el.table;
+  }
+  if (!lastTable?.tableRows?.length) return null;
+  const indices: number[] = [];
+  for (const row of lastTable.tableRows) {
+    for (const cell of row.tableCells ?? []) {
+      const first = cell.content?.[0];
+      if (first?.startIndex != null) indices.push(Number(first.startIndex) + 1);
+    }
+  }
+  return indices.length ? indices : null;
+}
+
 export async function generateDocumentContent(
   title: string,
   contentPrompt: string,

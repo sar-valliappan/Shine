@@ -1,7 +1,23 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
-import type { ActiveFile } from './sessionContext.js';
+import type { ActiveWorkspace } from '../workspace/activeSession.js';
+
+function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
+	const lines: string[] = [];
+	if (active.document) {
+		lines.push(`Google Doc — title: "${active.document.title}", file id: ${active.document.id}`);
+	}
+	if (active.spreadsheet) {
+		lines.push(`Google Sheet — title: "${active.spreadsheet.title}", file id: ${active.spreadsheet.id}`);
+	}
+	if (active.presentation) {
+		lines.push(`Google Slides — title: "${active.presentation.title}", file id: ${active.presentation.id}`);
+	}
+	if (!lines.length) return '';
+	return `\n\nActive workspace — the user may refer to these without naming them:\n${lines.map((l) => `- ${l}`).join('\n')}
+When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation.`;
+}
 
 const DEFAULT_MODEL_CANDIDATES = [
 	'gemma-3-27b-it',
@@ -51,7 +67,7 @@ function parseJsonPayload(text: string): WorkspaceAction {
 
 export async function parseCommandWithGemini(
 	command: string,
-	activeDoc: { id: string; title: string } | null = null,
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null },
 ): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 
@@ -64,12 +80,7 @@ export async function parseCommandWithGemini(
 
 	const client = new GoogleGenerativeAI(apiKey);
 
-	const contextBlock = activeDoc
-		? `\n\nActive document context — the user is currently working on:
-Title: "${activeDoc.title}"
-ID: ${activeDoc.id}
-If the command refers to editing, adding to, or modifying this document, use edit_document.`
-		: '';
+	const contextBlock = formatActiveWorkspaceContext(active);
 
 	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
 
