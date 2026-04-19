@@ -33,6 +33,27 @@ function applyClientWorkspaceHints(
 ): void {
 	const prev = getActiveWorkspace(sessionId);
 
+const DRIVE_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Syncs the in-memory workspace with whatever file the UI has open.
+ * Critical for cross-origin setups (e.g. Vite :5173 → API :3001) where the
+ * express-session cookie may differ per request, so server-side workspace state
+ * set during 'create' may not be visible on the next 'edit' request.
+ */
+function applyClientWorkspaceHints(
+	sessionId: string,
+	body: {
+		activeDocumentId?: string;
+		activeDocumentTitle?: string;
+		activeSpreadsheetId?: string;
+		activeSpreadsheetTitle?: string;
+		activePresentationId?: string;
+		activePresentationTitle?: string;
+	},
+): void {
+	const prev = getActiveWorkspace(sessionId);
+
 	// If the frontend sent the key (even empty), treat it as ground truth.
 	// Empty string means the user closed that file — clear stale session state.
 	if (typeof body.activeDocumentId === 'string') {
@@ -75,7 +96,7 @@ function applyClientWorkspaceHints(
 	}
 }
 
-async function syncActiveFileFromResult(
+function syncActiveFileFromResult(
 	sessionId: string,
 	result: ParseRouteResult,
 	oauthClient: unknown,
