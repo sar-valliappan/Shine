@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { enrichDriveFile } from '../workspace/drivePreview.js';
 
 const router = Router();
 
@@ -10,6 +11,7 @@ interface DriveFile {
   mimeType?: string | null;
   webViewLink?: string | null;
   modifiedTime?: string | null;
+  embedUrl?: string;
 }
 
 interface ListFilesQuery {
@@ -46,7 +48,7 @@ router.get('/list', requireAuth, async (req: Request, res: Response) => {
       orderBy: 'modifiedTime desc',
     });
 
-    const items: DriveFile[] = (response.data.files || []).map((file) => ({
+    const items: DriveFile[] = (response.data.files || []).map((file) => enrichDriveFile({
       id: file.id,
       name: file.name,
       mimeType: file.mimeType,
@@ -88,7 +90,7 @@ router.get('/search', requireAuth, async (req: Request, res: Response) => {
       fields: 'files(id, name, mimeType, webViewLink, modifiedTime)',
     });
 
-    const items: DriveFile[] = (response.data.files || []).map((file) => ({
+    const items: DriveFile[] = (response.data.files || []).map((file) => enrichDriveFile({
       id: file.id,
       name: file.name,
       mimeType: file.mimeType,

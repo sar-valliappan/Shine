@@ -81,6 +81,15 @@ export interface GmailDraftDetail {
   snippet?: string;
 }
 
+export interface CalendarEventPayload {
+  summary: string;
+  start_time: string;
+  end_time: string;
+  location?: string;
+  description?: string;
+  calendarId?: string;
+}
+
 export const getGmailOverview = async (): Promise<GmailOverview> => {
   const response = await fetch(`${API_BASE_URL}/api/gmail/overview`, {
     method: 'GET',
@@ -133,6 +142,22 @@ export const sendGmailDraft = async (draftId: string): Promise<void> => {
   if (!response.ok) {
     throw new Error(data?.error || `Request failed with status ${response.status}`);
   }
+};
+
+export const updateCalendarEvent = async (eventId: string, payload: CalendarEventPayload): Promise<WorkspaceResult> => {
+  const response = await fetch(`${API_BASE_URL}/api/calendar/events/${encodeURIComponent(eventId)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed with status ${response.status}`);
+  }
+
+  return data as WorkspaceResult;
 };
 
 export const logout = async (): Promise<void> => {

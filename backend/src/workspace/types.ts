@@ -7,6 +7,13 @@ export type ParseRouteResult = {
 	/** When set, updates the active session document title (e.g. after Drive rename). */
 	activeDocumentTitle?: string;
 	url?: string;
+	embedUrl?: string;
+	eventId?: string;
+	calendarId?: string;
+	start_time?: string;
+	end_time?: string;
+	location?: string;
+	description?: string;
 	fileType: string;
 	summary: string;
 	items?: unknown[];

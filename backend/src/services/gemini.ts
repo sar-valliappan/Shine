@@ -3,9 +3,17 @@ import { google } from 'googleapis';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import { appRouterPrompt } from '../prompts/appRouter.js';
 import { extractDocumentContext } from './googleDocsBodyHelpers.js';
+import { buildAppRouterPrompt } from '../prompts/appRouter.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
 import type { AppName } from '../workspace/app-router.js';
+
+function indentBlock(text: string, indent = '  '): string {
+	return text
+		.split('\n')
+		.map((line) => `${indent}${line}`)
+		.join('\n');
+}
 
 function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	const lines: string[] = [];
@@ -18,9 +26,41 @@ function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	if (active.presentation) {
 		lines.push(`Google Slides — title: "${active.presentation.title}", file id: ${active.presentation.id}`);
 	}
+	if (active.form) {
+		lines.push(`Google Form — title: "${active.form.title}", file id: ${active.form.id}`);
+	}
+	if (active.gmailDraft) {
+		lines.push(
+			[
+				`Gmail Draft — draft id: ${active.gmailDraft.id}`,
+				`author: ${active.gmailDraft.author || '(unknown)'}`,
+				`subject: ${active.gmailDraft.subject || active.gmailDraft.title || '(untitled)'}`,
+				`to: ${active.gmailDraft.to || '(unknown)'}`,
+				'message:',
+				indentBlock(active.gmailDraft.message || '(empty)')
+			].join('\n')
+		);
+	}
+	if (active.calendarEvent) {
+		lines.push(
+			[
+				`Calendar Event — event id: ${active.calendarEvent.id}`,
+				`calendar id: ${active.calendarEvent.calendarId}`,
+				`title: ${active.calendarEvent.title || '(untitled)'}`,
+				`start: ${active.calendarEvent.start_time || '(unknown)'}`,
+				`end: ${active.calendarEvent.end_time || '(unknown)'}`,
+				`location: ${active.calendarEvent.location || '(none)'}`,
+				'description:',
+				indentBlock(active.calendarEvent.description || '(empty)'),
+			].join('\n')
+		);
+	}
 	if (!lines.length) return '';
 	return `\n\nActive workspace — the user may refer to these without naming them:\n${lines.map((l) => `- ${l}`).join('\n')}
-When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation.`;
+When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation. For the open Gmail draft, use edit_draft and include draft_id when available.
+For share or invite requests on an open document, spreadsheet, presentation, or form, use share_file and include the active file id from context.
+For the open calendar event, always use create_event with the updated summary/start_time/end_time/location/description; the backend will apply that as an edit to the active event unless the user explicitly asks to create a new event.
+If the command is an edit/update request without explicitly naming another app, apply it to the currently active item type from this context.`;
 }
 
 const DEFAULT_MODEL_CANDIDATES = [
@@ -169,12 +209,13 @@ export async function parseDocsCommandWithContext(
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null }): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 
 	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${appRouterPrompt}${command}`;
+	const activeContext = formatActiveWorkspaceContext(active);
+	const prompt = buildAppRouterPrompt(command, activeContext);
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel

@@ -4,15 +4,14 @@ import {
   extractGoogleWorkspaceFileIdFromUrl,
   getAuthStatus,
   getGoogleAuthUrl,
-  getGmailOverview,
-  type GmailOverview,
   getGmailDraft,
   updateGmailDraft,
   sendGmailDraft,
+  updateCalendarEvent,
 } from '../services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
-type AppKey = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'sites' | 'classroom' | 'drive';
+type AppKey = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'calendar' | 'sites' | 'classroom' | 'drive';
 
 interface AppDef {
   label: string;
@@ -30,17 +29,43 @@ interface DocState {
   previewUrl?: string;
 }
 
+type WorkspaceParseResult = {
+  action?: string;
+  title?: string;
+  url?: string;
+  embedUrl?: string;
+  summary?: string;
+  fileType?: string;
+  items?: Array<any>;
+  eventId?: string;
+  calendarId?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
+};
+
 interface DocsContent { h: string; p: string; }
 interface SheetsContent { headers: string[]; rows: string[][]; }
 interface SlidesContent { title: string; sub: string; }
 interface GmailContent { to: string; subject: string; body: string; }
 interface FormsQuestion { q: string; type: 'scale' | 'long' | 'yesno'; }
 interface FormsContent { title: string; description: string; questions: FormsQuestion[]; }
+interface CalendarContent {
+  summary: string;
+  details?: string;
+  eventId?: string;
+  calendarId?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
+}
 interface SiteBlock { kind: 'hero' | 'grid' | 'text'; title?: string; body?: string; items?: string[]; }
 interface SitesContent { title: string; blocks: SiteBlock[]; }
 interface Assignment { title: string; due: string; points: number; }
 interface ClassroomContent { title: string; section: string; assignments: Assignment[]; students: number; }
-interface DriveItem { name: string; kind: string; modified: string; webViewLink?: string; url?: string; }
+interface DriveItem { id?: string; name: string; kind: string; modified: string; mimeType?: string; webViewLink?: string; url?: string; embedUrl?: string; }
 interface DriveContent { items: DriveItem[]; }
 
 interface Block {
@@ -69,6 +94,7 @@ const APPS: Record<AppKey, AppDef> = {
   slides:    { label: 'slides',    accent: '#FBBC05', ext: 'deck',  path: 'slides' },
   gmail:     { label: 'gmail',     accent: '#EA4335', ext: 'draft', path: 'gmail' },
   forms:     { label: 'forms',     accent: '#673AB7', ext: 'form',  path: 'forms' },
+  calendar:  { label: 'calendar',  accent: '#0B57D0', ext: 'event', path: 'calendar' },
   sites:     { label: 'sites',     accent: '#512DA8', ext: 'site',  path: 'sites' },
   classroom: { label: 'classroom', accent: '#0F9D58', ext: 'class', path: 'classroom' },
   drive:     { label: 'drive',     accent: 'multi',   ext: 'list',  path: 'drive' },
@@ -100,8 +126,25 @@ function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
     return url.replace(/\/edit(?:\?.*)?$/, '/viewform?embedded=true');
   }
 
+  if (app === 'calendar') {
+    return 'https://calendar.google.com/calendar/embed?src=primary&mode=AGENDA';
+  }
+
   // For docs, sheets, slides - return the edit URL which supports live embedding
   return url;
+}
+
+function driveItemKey(item?: DriveItem | null): string {
+  if (!item) return '';
+  return item.id || item.webViewLink || item.url || item.name;
+}
+
+function driveItemPreviewUrl(item: DriveItem): string | undefined {
+  return item.url || item.webViewLink || item.embedUrl;
+}
+
+function driveItemOpenUrl(item: DriveItem): string | undefined {
+  return item.url || item.webViewLink || item.embedUrl;
 }
 
 // ── Seed content ──────────────────────────────────────────────────────────
@@ -175,6 +218,18 @@ function seedFormContent(topic: string): FormsContent {
       { q: 'What could be better?', type: 'long' },
       { q: 'Would you recommend us?', type: 'yesno' },
     ],
+  };
+}
+function seedCalendarContent(topic: string, result?: WorkspaceParseResult): CalendarContent {
+  return {
+    summary: result?.title || titleCase(topic),
+    details: 'Edit details below and save to update this event.',
+    eventId: result?.eventId,
+    calendarId: result?.calendarId,
+    start_time: result?.start_time,
+    end_time: result?.end_time,
+    location: result?.location,
+    description: result?.description,
   };
 }
 function seedDriveContent(): DriveContent {
@@ -251,11 +306,12 @@ function appFromFileType(fileType: string | undefined): AppKey | null {
   if (fileType === 'slides') return 'slides';
   if (fileType === 'gmail') return 'gmail';
   if (fileType === 'form') return 'forms';
+  if (fileType === 'calendar') return 'calendar';
   if (fileType === 'drive' || fileType === 'list') return 'drive';
   return null;
 }
 
-function docFromWorkspaceResult(result: any, input: string): DocState | null {
+function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): DocState | null {
   const app = appFromFileType(result?.fileType);
   if (!app) return null;
 
@@ -265,6 +321,7 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
   if (app === 'drive') {
     const items = Array.isArray(result?.items)
       ? result.items.map((item: any) => ({
+          id: item?.id,
           name: item?.name || item?.title || 'untitled',
           kind: item?.mimeType?.includes('spreadsheet')
             ? 'sheets'
@@ -272,10 +329,16 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
               ? 'slides'
               : item?.mimeType?.includes('document')
                 ? 'docs'
+                : item?.mimeType?.includes('form')
+                  ? 'forms'
+                  : item?.mimeType?.includes('folder')
+                    ? 'drive'
                 : 'drive',
           modified: item?.modifiedTime ? 'recently' : 'unknown',
+          mimeType: item?.mimeType,
           webViewLink: item?.webViewLink,
-          url: item?.webViewLink || item?.url,
+          url: item?.url || item?.webViewLink,
+          embedUrl: item?.embedUrl,
         }))
       : seedDriveContent().items;
 
@@ -298,7 +361,18 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
         : app === 'slides' ? seedSlidesContent(normalizedTitle)
         : seedFormContent(normalizedTitle),
       url: result?.url,
-      previewUrl: googlePreviewUrl(app, result?.url),
+      previewUrl: googlePreviewUrl(app, result?.url) || result?.embedUrl,
+    };
+  }
+
+  if (app === 'calendar') {
+    return {
+      app,
+      title: normalizedTitle,
+      slug: slug(normalizedTitle),
+      content: seedCalendarContent(normalizedTitle, result),
+      url: result?.url,
+      previewUrl: result?.embedUrl || googlePreviewUrl(app, result?.url),
     };
   }
 
@@ -468,9 +542,6 @@ function SlidesApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
 
 function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null) => void }) {
   const content = doc.content as GmailContent;
-  const [overview, setOverview] = useState<GmailOverview | null>(null);
-  const [loadingOverview, setLoadingOverview] = useState(true);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
   const [draft, setDraft] = useState<GmailContent | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -489,35 +560,6 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
   useEffect(() => {
     const nextDraftId = extractDraftId(doc.url);
     setDraftId(nextDraftId);
-
-    if (nextDraftId) {
-      setLoadingOverview(false);
-      setOverview(null);
-      setOverviewError(null);
-      return;
-    }
-
-    let mounted = true;
-    setLoadingOverview(true);
-    setOverviewError(null);
-
-    getGmailOverview()
-      .then((data) => {
-        if (!mounted) return;
-        setOverview(data);
-      })
-      .catch((err: unknown) => {
-        if (!mounted) return;
-        setOverviewError(String((err as Error)?.message || 'failed to load live gmail data'));
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoadingOverview(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
   }, [doc.url, doc.title]);
 
   useEffect(() => {
@@ -564,7 +606,7 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
     return () => {
       mounted = false;
     };
-  }, [draftId]);
+  }, [draftId, doc]);
 
   useEffect(() => {
     if (!draftId || !draft) return;
@@ -627,10 +669,8 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
       </div>
       <div className="gmail-live" role="region" aria-label="live gmail data">
         <div className="gmail-live-head">
-          <div className="gmail-live-title">gmail drafts</div>
-          <div className="gmail-live-mailbox">
-            {draftId ? `draft ${draftId.slice(0, 8)}` : 'live via gmail api'}
-          </div>
+          <div className="gmail-live-title">gmail</div>
+          <div className="gmail-live-mailbox">live via gmail api</div>
         </div>
 
         {draftId && (
@@ -687,26 +727,7 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
           </div>
         )}
 
-        {loadingOverview && <div className="gmail-live-status">loading live gmail data...</div>}
-        {!loadingOverview && overviewError && <div className="gmail-live-status gmail-live-error">{overviewError}</div>}
-
-        {!draftId && !loadingOverview && !overviewError && overview && (
-          <div className="gmail-live-section">
-            <div className="gmail-live-section-title">recent drafts</div>
-            {overview.drafts.length === 0 && <div className="gmail-live-empty">no drafts found</div>}
-            {overview.drafts.map((d) => (
-              <div className="gmail-live-item" key={d.id}>
-                <div className="gmail-live-item-top">
-                  <span className="gmail-live-item-subject">{d.subject}</span>
-                  <span className="gmail-live-item-meta">to {d.to}</span>
-                </div>
-                <div className="gmail-live-item-snippet">{d.snippet || 'no preview text'}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!draftId && !loadingOverview && !overview && !overviewError && (
+        {!draftId && (
           <div className="gmail-compose">
             <div className="g-field"><span className="g-key">to</span><span className="g-val">{content.to}</span></div>
             <div className="g-field"><span className="g-key">subject</span><span className="g-val">{content.subject}</span></div>
@@ -745,6 +766,186 @@ function FormsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
         </div>
       }
     />
+  );
+}
+
+function CalendarApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
+  const content = doc.content as CalendarContent;
+  const [draft, setDraft] = useState<CalendarContent>(content);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(content);
+  }, [content]);
+
+  const toLocalInputValue = (iso?: string): string => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+
+  const fromLocalInputValue = (localValue: string): string => {
+    return new Date(localValue).toISOString();
+  };
+
+  const canSave = !!draft.eventId && !!draft.summary?.trim() && !!draft.start_time && !!draft.end_time;
+
+  const handleSave = async () => {
+    if (!canSave || !draft.eventId) return;
+    if (new Date(draft.end_time!).getTime() <= new Date(draft.start_time!).getTime()) {
+      setSaveState('error');
+      setSaveError('End time must be after start time.');
+      return;
+    }
+
+    try {
+      setSaveState('saving');
+      setSaveError(null);
+      const updated = (await updateCalendarEvent(draft.eventId, {
+        summary: draft.summary.trim(),
+        start_time: draft.start_time!,
+        end_time: draft.end_time!,
+        location: draft.location || '',
+        description: draft.description || '',
+        calendarId: draft.calendarId,
+      })) as WorkspaceParseResult;
+
+      const nextContent: CalendarContent = {
+        ...draft,
+        summary: updated.title || draft.summary,
+        eventId: updated.eventId || draft.eventId,
+        calendarId: updated.calendarId || draft.calendarId,
+        start_time: updated.start_time || draft.start_time,
+        end_time: updated.end_time || draft.end_time,
+        location: updated.location ?? draft.location,
+        description: updated.description ?? draft.description,
+      };
+
+      setDraft(nextContent);
+      setDoc?.({
+        ...doc,
+        title: updated.title || doc.title,
+        content: nextContent,
+        url: updated.url || doc.url,
+        previewUrl: updated.embedUrl || doc.previewUrl,
+      });
+      setSaveState('saved');
+    } catch (err: unknown) {
+      setSaveState('error');
+      setSaveError(String((err as Error)?.message || 'Failed to update calendar event'));
+    }
+  };
+
+  return (
+    <div className="app-surface live-app">
+      <div className="app-titlebar" style={{ borderColor: APPS.calendar.accent }}>
+        <span className="app-title-read" style={{ color: APPS.calendar.accent }}>{doc.title}</span>
+        {doc.url ? (
+          <a className="app-live-link" href={doc.url} target="_blank" rel="noreferrer">open live</a>
+        ) : (
+          <span className="app-saved">calendar event</span>
+        )}
+      </div>
+
+      <div className="gmail-live" role="region" aria-label="calendar event editor">
+        <div className="gmail-live-head">
+          <div className="gmail-live-title">calendar</div>
+          <div className="gmail-live-mailbox">edit event inside panel</div>
+        </div>
+        <div className="gmail-save-state">
+          {saveState === 'saving' && 'saving...'}
+          {saveState === 'saved' && 'saved'}
+          {saveState === 'error' && (saveError || 'save failed')}
+          {saveState === 'idle' && (draft.details || 'Edit details and click Save')}
+        </div>
+
+        <div className="gmail-editor">
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Title</span>
+            <input
+              className="gmail-edit-input"
+              value={draft.summary || ''}
+              onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Start</span>
+            <input
+              type="datetime-local"
+              className="gmail-edit-input"
+              value={toLocalInputValue(draft.start_time)}
+              onChange={(e) => setDraft({ ...draft, start_time: fromLocalInputValue(e.target.value) })}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">End</span>
+            <input
+              type="datetime-local"
+              className="gmail-edit-input"
+              value={toLocalInputValue(draft.end_time)}
+              onChange={(e) => setDraft({ ...draft, end_time: fromLocalInputValue(e.target.value) })}
+            />
+          </label>
+          <label className="gmail-edit-field">
+            <span className="gmail-edit-label">Location</span>
+            <input
+              className="gmail-edit-input"
+              value={draft.location || ''}
+              onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <label className="gmail-edit-field gmail-edit-field-body">
+            <span className="gmail-edit-label">Description</span>
+            <textarea
+              className="gmail-edit-textarea"
+              value={draft.description || ''}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+          <div className="gmail-editor-actions">
+            <button
+              type="button"
+              className="gmail-send-btn"
+              onClick={handleSave}
+              disabled={!canSave || saveState === 'saving'}
+            >
+              {saveState === 'saving' ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+
+        <div className="live-preview-shell" style={{ marginTop: 10 }}>
+          {doc.previewUrl ? (
+            <iframe
+              className="live-preview-frame live-preview-frame-calendar"
+              src={doc.previewUrl}
+              title={'Google Calendar: ' + doc.title}
+              referrerPolicy="no-referrer-when-downgrade"
+              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+            />
+          ) : (
+            <div className="live-preview-empty">
+              <div className="form-body">
+                <div className="form-desc">{draft.details || 'Calendar live preview'}</div>
+                <div className="form-q">
+                  <div className="form-q-num" style={{ color: APPS.calendar.accent }}>1.</div>
+                  <div className="form-q-body">
+                    <div className="form-q-text">{draft.summary}</div>
+                    <div className="form-q-type">Open live to view event details in Google Calendar.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -817,6 +1018,16 @@ function ClassroomApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) =>
 
 function DriveApp({ doc }: { doc: DocState }) {
   const content = doc.content as DriveContent;
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedKey(content.items.length ? driveItemKey(content.items[0]) : null);
+  }, [doc.title, content.items]);
+
+  const selectedItem = content.items.find((item) => driveItemKey(item) === selectedKey) || content.items[0] || null;
+  const previewUrl = selectedItem ? driveItemPreviewUrl(selectedItem) : undefined;
+  const openUrl = selectedItem ? driveItemOpenUrl(selectedItem) : undefined;
+
   return (
     <div className="app-surface">
       <div className="app-titlebar">
@@ -829,24 +1040,65 @@ function DriveApp({ doc }: { doc: DocState }) {
         </span>
         <span className="app-saved">{content.items.length} files</span>
       </div>
-      <div className="drive-grid">
-        {content.items.map((it, i) => {
-          const color = it.kind === 'drive' ? DRIVE_MIX[i % DRIVE_MIX.length] : (APPS[it.kind as AppKey]?.accent || '#888');
-          const tileBody = (
-            <>
-              <div className="drive-thumb" style={{ borderColor: color }}>
-                <span className="drive-kind" style={{ color }}>{APPS[it.kind as AppKey]?.ext || 'file'}</span>
+      <div className="drive-workspace">
+        <div className="drive-grid drive-list">
+          {content.items.map((it, i) => {
+            const color = it.kind === 'drive' ? DRIVE_MIX[i % DRIVE_MIX.length] : (APPS[it.kind as AppKey]?.accent || '#888');
+            const itemKey = driveItemKey(it);
+            const isSelected = selectedKey === itemKey;
+            return (
+              <button
+                type="button"
+                key={itemKey}
+                className={'drive-tile drive-tile-button' + (isSelected ? ' is-selected' : '')}
+                onClick={() => setSelectedKey(itemKey)}
+              >
+                <div className="drive-thumb" style={{ borderColor: color }}>
+                  <span className="drive-kind" style={{ color }}>{APPS[it.kind as AppKey]?.ext || 'file'}</span>
+                </div>
+                <div className="drive-name">{it.name}</div>
+                <div className="drive-time">{it.modified}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="drive-preview">
+          <div className="drive-preview-head">
+            <div className="drive-preview-title">{selectedItem ? selectedItem.name : 'Select a file'}</div>
+            <div className="drive-preview-meta">{selectedItem?.mimeType || (selectedItem ? selectedItem.kind : 'drive preview')}</div>
+            {openUrl ? (
+              <a className="app-live-link drive-open-link" href={openUrl} target="_blank" rel="noreferrer">open live</a>
+            ) : null}
+          </div>
+          <div className="drive-preview-shell">
+            {previewUrl ? (
+              <iframe
+                className="drive-preview-frame"
+                src={previewUrl}
+                title={selectedItem ? 'Drive file: ' + selectedItem.name : 'Drive preview'}
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+              />
+            ) : (
+              <div className="drive-preview-empty">
+                <div className="form-body">
+                  <div className="form-desc">
+                    {selectedItem ? 'This file does not expose an embeddable preview.' : 'Select a file in Drive to preview it here.'}
+                  </div>
+                  {selectedItem && (
+                    <div className="form-q">
+                      <div className="form-q-num" style={{ color: DRIVE_MIX[0] }}>1.</div>
+                      <div className="form-q-body">
+                        <div className="form-q-text">{selectedItem.name}</div>
+                        <div className="form-q-type">Open live to view this file in Google Drive.</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="drive-name">{it.name}</div>
-              <div className="drive-time">{it.modified}</div>
-            </>
-          );
-          return (
-            it.url || it.webViewLink
-              ? <a className="drive-tile drive-tile-link" key={i} href={it.url || it.webViewLink} target="_blank" rel="noreferrer">{tileBody}</a>
-              : <div className="drive-tile" key={i}>{tileBody}</div>
-          );
-        })}
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -995,10 +1247,11 @@ function TweaksPanel({ tweaks, setTweaks, visible }: { tweaks: Tweaks; setTweaks
 // ── Main component ────────────────────────────────────────────────────────
 const APP_COMPONENTS: Record<AppKey, React.FC<{ doc: DocState; setDoc: (d: DocState | null) => void }>> = {
   docs: DocsApp, sheets: SheetsApp, slides: SlidesApp, gmail: GmailApp,
-  forms: FormsApp, sites: SitesApp, classroom: ClassroomApp, drive: DriveApp,
+  forms: FormsApp, calendar: CalendarApp, sites: SitesApp, classroom: ClassroomApp, drive: DriveApp,
 };
 
-export function Terminal() {
+export function Terminal({ onLogout }: { onLogout?: () => void } = {}) {
+  void onLogout;
   const [tweaks, setTweaks] = useState<Tweaks>({ density: 'cozy', chrome: true, sidebar: 'right', paneWidth: 540 });
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState('');

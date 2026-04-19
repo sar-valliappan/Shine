@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { routeToApp } from '../services/gemini.js';
+import { lookupDriveFilesByName } from '../workspace/drive.js';
 import {
 	executeAppCommand,
 	extractFileIdFromWorkspaceUrl,
+	extractGmailDraftIdFromUrl,
+	loadGmailDraftContext,
 	getActiveWorkspace,
 	updateActiveWorkspace,
+	type AppName,
 } from '../workspace/index.js';
 
 const router = Router();
@@ -81,32 +85,101 @@ function syncActiveFileFromResult(
 	activeDocumentTitle?: string,
 	documentTitleHint?: string,
 ) {
-	const id = url ? extractFileIdFromWorkspaceUrl(url) : null;
-	if (!id) return;
+	const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
+	const gmailDraftId = url ? extractGmailDraftIdFromUrl(url) : null;
 
 	const prev = getActiveWorkspace(sessionId);
 	const patch: Parameters<typeof updateActiveWorkspace>[1] = {};
 
-	if (actionName === 'create_document' || actionName === 'edit_document') {
+	if (workspaceFileId && (actionName === 'create_document' || actionName === 'edit_document')) {
 		const nextTitle =
 			actionName === 'edit_document' && prev.document?.id === id
 				? (activeDocumentTitle ?? documentTitleHint ?? prev.document.title)
 				: (activeDocumentTitle ?? documentTitleHint ?? title ?? prev.document?.title ?? 'Untitled');
 		patch.document = { id, title: nextTitle };
 	}
-	if (actionName === 'create_spreadsheet' || actionName === 'edit_spreadsheet') {
+	if (workspaceFileId && (actionName === 'create_spreadsheet' || actionName === 'edit_spreadsheet')) {
 		const nextTitle =
-			actionName === 'edit_spreadsheet' && prev.spreadsheet?.id === id
+			actionName === 'edit_spreadsheet' && prev.spreadsheet?.id === workspaceFileId
 				? prev.spreadsheet.title
 				: (title ?? prev.spreadsheet?.title ?? 'Untitled');
-		patch.spreadsheet = { id, title: nextTitle };
+		patch.spreadsheet = { id: workspaceFileId, title: nextTitle };
+		patch.activeApp = 'sheets';
 	}
-	if (actionName === 'create_presentation' || actionName === 'edit_presentation') {
+	if (workspaceFileId && (actionName === 'create_presentation' || actionName === 'edit_presentation')) {
 		const nextTitle =
-			actionName === 'edit_presentation' && prev.presentation?.id === id
+			actionName === 'edit_presentation' && prev.presentation?.id === workspaceFileId
 				? prev.presentation.title
 				: (title ?? prev.presentation?.title ?? 'Untitled');
-		patch.presentation = { id, title: nextTitle };
+		patch.presentation = { id: workspaceFileId, title: nextTitle };
+		patch.activeApp = 'slides';
+	}
+	if (workspaceFileId && actionName === 'create_form') {
+		patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
+		patch.activeApp = 'forms';
+	}
+	if (gmailDraftId && (actionName === 'create_draft' || actionName === 'edit_draft')) {
+		try {
+			const loadedDraft = await loadGmailDraftContext(oauthClient, gmailDraftId);
+			const nextTitle =
+				actionName === 'edit_draft' && prev.gmailDraft?.id === gmailDraftId
+					? prev.gmailDraft.title
+					: (loadedDraft?.subject ?? title ?? prev.gmailDraft?.title ?? 'Untitled');
+			patch.gmailDraft = loadedDraft
+				? {
+					id: loadedDraft.id,
+					title: nextTitle,
+					author: loadedDraft.author,
+					subject: loadedDraft.subject,
+					message: loadedDraft.message,
+					to: loadedDraft.to,
+				}
+				: {
+					id: gmailDraftId,
+					title: nextTitle,
+					author: prev.gmailDraft?.author ?? '',
+					subject: prev.gmailDraft?.subject ?? nextTitle,
+					message: prev.gmailDraft?.message ?? '',
+					to: prev.gmailDraft?.to ?? '',
+				};
+			patch.activeApp = 'gmail';
+		} catch (error) {
+			console.error('[parse] failed to refresh Gmail draft context:', error);
+		}
+	}
+	if (actionName === 'send_email') {
+		patch.gmailDraft = null;
+		if (prev.activeApp === 'gmail') patch.activeApp = null;
+	}
+	if ((actionName === 'create_event' || actionName === 'update_event') && result.eventId) {
+		patch.calendarEvent = {
+			id: result.eventId,
+			calendarId: result.calendarId ?? prev.calendarEvent?.calendarId ?? 'primary',
+			title: title ?? prev.calendarEvent?.title ?? 'Untitled Event',
+			start_time: result.start_time,
+			end_time: result.end_time,
+			location: result.location,
+			description: result.description,
+		};
+		patch.activeApp = 'calendar';
+	}
+	if (result.fileType === 'doc' || result.fileType === 'sheet' || result.fileType === 'slides' || result.fileType === 'form') {
+		const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
+		if (workspaceFileId) {
+			if (result.fileType === 'doc') {
+				patch.document = { id: workspaceFileId, title: title ?? prev.document?.title ?? 'Untitled' };
+				patch.activeApp = 'docs';
+			} else if (result.fileType === 'sheet') {
+				patch.spreadsheet = { id: workspaceFileId, title: title ?? prev.spreadsheet?.title ?? 'Untitled' };
+				patch.activeApp = 'sheets';
+			} else if (result.fileType === 'slides') {
+				patch.presentation = { id: workspaceFileId, title: title ?? prev.presentation?.title ?? 'Untitled' };
+				patch.activeApp = 'slides';
+			} else if (result.fileType === 'form') {
+				patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
+				patch.activeApp = 'forms';
+			}
+		}
 	}
 	if (Object.keys(patch).length) updateActiveWorkspace(sessionId, patch);
 }
@@ -132,9 +205,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const sessionId = req.sessionID;
 		applyClientWorkspaceHints(sessionId, body);
 		const active = getActiveWorkspace(sessionId);
+		const explicitDriveLookup = await lookupDriveFilesByName(command.trim(), req.oauthClient, process.env.GEMINI_API_KEY);
+		if (explicitDriveLookup) {
+			return res.json(explicitDriveLookup);
+		}
 
 		// Step 1: Gemini decides which app the user wants
-		const app = await routeToApp(command.trim());
+		const app = chooseAppFromActiveContext(command, active) ?? (await routeToApp(command.trim(), active));
 		if (!app) {
 			return res.status(400).json({ error: "I couldn't determine which app you want to use. Try mentioning docs, sheets, slides, gmail, forms, drive, or calendar." });
 		}
