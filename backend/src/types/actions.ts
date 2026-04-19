@@ -31,6 +31,7 @@ export type WorkspaceAction =
 		}
 	| { action: 'create_form'; title: string; questions: FormQuestion[] }
 	| { action: 'create_draft'; to: string; subject: string; body_prompt: string }
+	| { action: 'edit_draft'; draft_id?: string; to: string; subject: string; body_prompt: string }
 	| { action: 'send_email'; to: string; subject: string; body_prompt: string }
 	| { action: 'list_files'; query?: string; limit?: number }
 	| { action: 'search_drive'; query: string }

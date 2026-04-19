@@ -3,8 +3,6 @@ import {
   parseCommand as parseWorkspaceCommand,
   getAuthStatus,
   getGoogleAuthUrl,
-  getGmailOverview,
-  type GmailOverview,
   getGmailDraft,
   updateGmailDraft,
   sendGmailDraft,
@@ -467,9 +465,6 @@ function SlidesApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
 
 function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null) => void }) {
   const content = doc.content as GmailContent;
-  const [overview, setOverview] = useState<GmailOverview | null>(null);
-  const [loadingOverview, setLoadingOverview] = useState(true);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
   const [draft, setDraft] = useState<GmailContent | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -488,35 +483,6 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
   useEffect(() => {
     const nextDraftId = extractDraftId(doc.url);
     setDraftId(nextDraftId);
-
-    if (nextDraftId) {
-      setLoadingOverview(false);
-      setOverview(null);
-      setOverviewError(null);
-      return;
-    }
-
-    let mounted = true;
-    setLoadingOverview(true);
-    setOverviewError(null);
-
-    getGmailOverview()
-      .then((data) => {
-        if (!mounted) return;
-        setOverview(data);
-      })
-      .catch((err: unknown) => {
-        if (!mounted) return;
-        setOverviewError(String((err as Error)?.message || 'failed to load live gmail data'));
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoadingOverview(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
   }, [doc.url, doc.title]);
 
   useEffect(() => {
@@ -563,7 +529,7 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
     return () => {
       mounted = false;
     };
-  }, [draftId]);
+  }, [draftId, doc]);
 
   useEffect(() => {
     if (!draftId || !draft) return;
@@ -626,10 +592,8 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
       </div>
       <div className="gmail-live" role="region" aria-label="live gmail data">
         <div className="gmail-live-head">
-          <div className="gmail-live-title">gmail drafts</div>
-          <div className="gmail-live-mailbox">
-            {draftId ? `draft ${draftId.slice(0, 8)}` : 'live via gmail api'}
-          </div>
+          <div className="gmail-live-title">gmail</div>
+          <div className="gmail-live-mailbox">live via gmail api</div>
         </div>
 
         {draftId && (
@@ -686,26 +650,7 @@ function GmailApp({ doc, setDoc }: { doc: DocState; setDoc?: (d: DocState | null
           </div>
         )}
 
-        {loadingOverview && <div className="gmail-live-status">loading live gmail data...</div>}
-        {!loadingOverview && overviewError && <div className="gmail-live-status gmail-live-error">{overviewError}</div>}
-
-        {!draftId && !loadingOverview && !overviewError && overview && (
-          <div className="gmail-live-section">
-            <div className="gmail-live-section-title">recent drafts</div>
-            {overview.drafts.length === 0 && <div className="gmail-live-empty">no drafts found</div>}
-            {overview.drafts.map((d) => (
-              <div className="gmail-live-item" key={d.id}>
-                <div className="gmail-live-item-top">
-                  <span className="gmail-live-item-subject">{d.subject}</span>
-                  <span className="gmail-live-item-meta">to {d.to}</span>
-                </div>
-                <div className="gmail-live-item-snippet">{d.snippet || 'no preview text'}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!draftId && !loadingOverview && !overview && !overviewError && (
+        {!draftId && (
           <div className="gmail-compose">
             <div className="g-field"><span className="g-key">to</span><span className="g-val">{content.to}</span></div>
             <div className="g-field"><span className="g-key">subject</span><span className="g-val">{content.subject}</span></div>
