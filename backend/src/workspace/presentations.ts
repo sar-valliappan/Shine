@@ -7,6 +7,7 @@ import {
 } from '../services/slidesService.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
 import type { ActiveWorkspace } from './activeSession.js';
+import { executeWorkspaceAction } from './executeWorkspaceAction.js';
 import type { ParseRouteResult } from './types.js';
 
 // ── App-level entry point (called by app-router) ──────────────────────────
@@ -21,6 +22,14 @@ export async function handleSlidesCommand(
 ): Promise<ParseRouteResult> {
 	const parsed = await parseCommandWithGemini(command, active);
 	const action = parsed.action;
+	if (action.action === 'share_file') {
+		if (!action.fileId && active.presentation) {
+			action.fileId = active.presentation.id;
+			action.fileType = 'slides';
+			action.title = active.presentation.title;
+		}
+		return executeWorkspaceAction(action, oauthClient, apiKey);
+	}
 	if (action.action === 'edit_presentation' && !action.fileId && active.presentation) {
 		action.fileId = active.presentation.id;
 	}
