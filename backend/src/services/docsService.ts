@@ -144,8 +144,11 @@ export async function generateDocumentContent(
   apiKey: string,
 ): Promise<string> {
   try {
-    const client = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
-    const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL ?? 'gemma-3-27b-it' });
+    const client = new GoogleGenerativeAI(apiKey);
+    const model = client.getGenerativeModel(
+      { model: process.env.GEMINI_MODEL ?? 'gemma-3-27b-it' },
+      { apiVersion: 'v1beta' },
+    );
 
     const instruction = `${DOCUMENT_FORMATTING_PROMPT}
 

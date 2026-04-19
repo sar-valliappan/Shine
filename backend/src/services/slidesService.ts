@@ -39,7 +39,10 @@ async function generateSlideContent(
 ): Promise<SlideContent> {
   try {
     const client = new GoogleGenerativeAI(apiKey);
-    const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL ?? 'gemini-2.0-flash-lite' });
+    const model = client.getGenerativeModel(
+      { model: process.env.GEMINI_MODEL ?? 'gemma-3-27b-it' },
+      { apiVersion: 'v1beta' },
+    );
 
     const instruction = isTitle
       ? `Create a title slide for: "${prompt}". Return ONLY valid JSON (no markdown fences):

@@ -62,7 +62,7 @@ export async function parseCommandWithGemini(
 		};
 	}
 
-	const client = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
+	const client = new GoogleGenerativeAI(apiKey);
 
 	const contextBlock = activeDoc
 		? `\n\nActive document context — the user is currently working on:
@@ -83,12 +83,13 @@ If the command refers to editing, adding to, or modifying this document, use edi
 
 	for (const modelName of modelCandidates) {
 		try {
-			const model = client.getGenerativeModel({ model: modelName });
+			const model = client.getGenerativeModel({ model: modelName }, { apiVersion: 'v1beta' });
 			const result = await model.generateContent(prompt);
 			text = result.response.text();
 			lastError = null;
 			break;
 		} catch (error) {
+			console.error(`[gemini] Model failed: ${modelName}`, error);
 			lastError = error;
 		}
 	}
