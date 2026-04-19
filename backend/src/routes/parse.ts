@@ -57,7 +57,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const active = getActiveWorkspace(sessionId);
 
 		// Step 1: Gemini decides which app the user wants
-		const app = await routeToApp(command.trim());
+		const app = await routeToApp(command.trim(), active);
 		if (!app) {
 			return res.status(400).json({ error: "I couldn't determine which app you want to use. Try mentioning docs, sheets, slides, gmail, forms, drive, or calendar." });
 		}

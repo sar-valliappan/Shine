@@ -22,5 +22,9 @@ Routing guide:
 
 If the user mentions editing or updating something already open, route based on what type of file they describe.
 
-User command:
+IMPORTANT: If an active file is listed below and the command seems to refer to it (e.g. "change", "update", "edit", "add", "delete", "sort"), always route to that file's app — even if the command doesn't say "sheet" or "spreadsheet" explicitly.
 `;
+
+export function buildAppRouterPrompt(command: string, activeContext: string): string {
+	return `${appRouterPrompt}${activeContext}\n\nUser command:\n${command}`;
+}
