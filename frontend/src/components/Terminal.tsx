@@ -20,6 +20,8 @@ interface DocState {
   title: string;
   slug: string;
   content: unknown;
+  url?: string;
+  previewUrl?: string;
 }
 
 interface DocsContent { h: string; p: string; }
@@ -32,7 +34,7 @@ interface SiteBlock { kind: 'hero' | 'grid' | 'text'; title?: string; body?: str
 interface SitesContent { title: string; blocks: SiteBlock[]; }
 interface Assignment { title: string; due: string; points: number; }
 interface ClassroomContent { title: string; section: string; assignments: Assignment[]; students: number; }
-interface DriveItem { name: string; kind: string; modified: string; }
+interface DriveItem { name: string; kind: string; modified: string; webViewLink?: string; url?: string; }
 interface DriveContent { items: DriveItem[]; }
 
 interface Block {
@@ -80,6 +82,20 @@ function accentFor(appKey: AppKey | undefined): string {
   return a.accent;
 }
 function isMultiApp(appKey: AppKey | undefined) { return !!appKey && APPS[appKey]?.accent === 'multi'; }
+
+function googlePreviewUrl(app: AppKey, url?: string): string | undefined {
+  if (!url) return undefined;
+  
+  // Return the live editing URL for embedded views
+  // Google Docs, Sheets, and Slides can be embedded with the /edit URL
+  if (app === 'forms') {
+    // Forms use /viewform for embedded viewing
+    return url.replace(/\/edit(?:\?.*)?$/, '/viewform?embedded=true');
+  }
+  
+  // For docs, sheets, slides - return the edit URL which supports live embedding
+  return url;
+}
 
 // ── Seed content ──────────────────────────────────────────────────────────
 function seedDocContent(topic: string): DocsContent[] {
@@ -251,6 +267,8 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
                 ? 'docs'
                 : 'drive',
           modified: item?.modifiedTime ? 'recently' : 'unknown',
+          webViewLink: item?.webViewLink,
+          url: item?.webViewLink || item?.url,
         }))
       : seedDriveContent().items;
 
@@ -262,16 +280,27 @@ function docFromWorkspaceResult(result: any, input: string): DocState | null {
     };
   }
 
-  if (app === 'docs') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedDocContent(normalizedTitle) };
-  if (app === 'sheets') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedSheetContent(normalizedTitle) };
-  if (app === 'slides') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedSlidesContent(normalizedTitle) };
-  if (app === 'forms') return { app, title: normalizedTitle, slug: slug(normalizedTitle), content: seedFormContent(normalizedTitle) };
+  if (app === 'docs' || app === 'sheets' || app === 'slides' || app === 'forms') {
+    return {
+      app,
+      title: normalizedTitle,
+      slug: slug(normalizedTitle),
+      content:
+        app === 'docs' ? seedDocContent(normalizedTitle)
+        : app === 'sheets' ? seedSheetContent(normalizedTitle)
+        : app === 'slides' ? seedSlidesContent(normalizedTitle)
+        : seedFormContent(normalizedTitle),
+      url: result?.url,
+      previewUrl: googlePreviewUrl(app, result?.url),
+    };
+  }
 
   return {
     app: 'gmail',
     title: normalizedTitle,
     slug: slug(normalizedTitle),
     content: seedGmailContent(normalizedTitle),
+    url: result?.url,
   };
 }
 
@@ -311,77 +340,119 @@ function AppTitleEdit({ value, onChange, accent }: { value: string; onChange: (v
 }
 
 // ── App panes ─────────────────────────────────────────────────────────────
-function DocsApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) => void }) {
+function LiveWorkspaceApp({
+  doc,
+  accent,
+  label,
+  fallback,
+}: {
+  doc: DocState;
+  accent: string;
+  label: string;
+  fallback: React.ReactNode;
+}) {
+  const liveUrl = doc.previewUrl || doc.url;
+  return (
+    <div className="app-surface live-app">
+      <div className="app-titlebar" style={{ borderColor: accent }}>
+        <span className="app-title-read" style={{ color: accent }}>{doc.title}</span>
+        {doc.url ? (
+          <a className="app-live-link" href={doc.url} target="_blank" rel="noreferrer">open live</a>
+        ) : (
+          <span className="app-saved">live preview</span>
+        )}
+      </div>
+      <div className="live-preview-shell">
+        {liveUrl ? (
+          <iframe
+            className="live-preview-frame"
+            src={liveUrl}
+            title={label + ': ' + doc.title}
+            referrerPolicy="no-referrer-when-downgrade"
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+          />
+        ) : (
+          <div className="live-preview-empty">{fallback}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DocsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   const content = doc.content as DocsContent[];
   return (
-    <div className="app-surface">
-      <div className="app-titlebar" style={{ borderColor: APPS.docs.accent }}>
-        <AppTitleEdit value={doc.title} accent={APPS.docs.accent} onChange={(v) => setDoc({ ...doc, title: v })} />
-        <span className="app-saved">all changes saved</span>
-      </div>
-      <div className="docs-page">
-        <h1 className="docs-title">{doc.title}</h1>
-        {content.map((s, i) => (
-          <div className="docs-section" key={i}>
-            <h2 className="docs-h">{s.h}</h2>
-            <p className="docs-p">{s.p}</p>
-          </div>
-        ))}
-      </div>
-    </div>
+    <LiveWorkspaceApp
+      doc={doc}
+      accent={APPS.docs.accent}
+      label="Google Docs"
+      fallback={
+        <div className="docs-page">
+          <h1 className="docs-title">{doc.title}</h1>
+          {content.map((s, i) => (
+            <div className="docs-section" key={i}>
+              <h2 className="docs-h">{s.h}</h2>
+              <p className="docs-p">{s.p}</p>
+            </div>
+          ))}
+        </div>
+      }
+    />
   );
 }
 
-function SheetsApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) => void }) {
+function SheetsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   const content = doc.content as SheetsContent;
   return (
-    <div className="app-surface">
-      <div className="app-titlebar" style={{ borderColor: APPS.sheets.accent }}>
-        <AppTitleEdit value={doc.title} accent={APPS.sheets.accent} onChange={(v) => setDoc({ ...doc, title: v })} />
-        <span className="app-saved">autosaved</span>
-      </div>
-      <div className="sheets-grid">
-        <table>
-          <thead>
-            <tr>
-              <th className="sh-corner"></th>
-              {content.headers.map((h, i) => (<th key={i} style={{ color: APPS.sheets.accent }}>{h}</th>))}
-            </tr>
-          </thead>
-          <tbody>
-            {content.rows.map((r, i) => (
-              <tr key={i}>
-                <td className="sh-row-num">{i + 1}</td>
-                {r.map((v, j) => (<td key={j}>{v}</td>))}
+    <LiveWorkspaceApp
+      doc={doc}
+      accent={APPS.sheets.accent}
+      label="Google Sheets"
+      fallback={
+        <div className="sheets-grid">
+          <table>
+            <thead>
+              <tr>
+                <th className="sh-corner"></th>
+                {content.headers.map((h, i) => (<th key={i} style={{ color: APPS.sheets.accent }}>{h}</th>))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            </thead>
+            <tbody>
+              {content.rows.map((r, i) => (
+                <tr key={i}>
+                  <td className="sh-row-num">{i + 1}</td>
+                  {r.map((v, j) => (<td key={j}>{v}</td>))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      }
+    />
   );
 }
 
-function SlidesApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) => void }) {
+function SlidesApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   const content = doc.content as SlidesContent[];
   return (
-    <div className="app-surface">
-      <div className="app-titlebar" style={{ borderColor: APPS.slides.accent }}>
-        <AppTitleEdit value={doc.title} accent={APPS.slides.accent} onChange={(v) => setDoc({ ...doc, title: v })} />
-        <span className="app-saved">{content.length} slides</span>
-      </div>
-      <div className="slides-stack">
-        {content.map((s, i) => (
-          <div className="slide-card" key={i}>
-            <div className="slide-num" style={{ color: APPS.slides.accent }}>{String(i + 1).padStart(2, '0')}</div>
-            <div className="slide-inner">
-              <div className="slide-title" style={{ color: APPS.slides.accent }}>{s.title}</div>
-              <div className="slide-sub">{s.sub}</div>
+    <LiveWorkspaceApp
+      doc={doc}
+      accent={APPS.slides.accent}
+      label="Google Slides"
+      fallback={
+        <div className="slides-stack">
+          {content.map((s, i) => (
+            <div className="slide-card" key={i}>
+              <div className="slide-num" style={{ color: APPS.slides.accent }}>{String(i + 1).padStart(2, '0')}</div>
+              <div className="slide-inner">
+                <div className="slide-title" style={{ color: APPS.slides.accent }}>{s.title}</div>
+                <div className="slide-sub">{s.sub}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      }
+    />
   );
 }
 
@@ -403,32 +474,32 @@ function GmailApp({ doc }: { doc: DocState }) {
   );
 }
 
-function FormsApp({ doc, setDoc }: { doc: DocState; setDoc: (d: DocState) => void }) {
+function FormsApp({ doc }: { doc: DocState; setDoc?: (d: DocState) => void }) {
   const content = doc.content as FormsContent;
   return (
-    <div className="app-surface">
-      <div className="app-titlebar" style={{ borderColor: APPS.forms.accent }}>
-        <AppTitleEdit value={content.title} accent={APPS.forms.accent}
-          onChange={(v) => setDoc({ ...doc, content: { ...content, title: v } })} />
-        <span className="app-saved">{content.questions.length} questions</span>
-      </div>
-      <div className="form-body">
-        <div className="form-desc">{content.description}</div>
-        {content.questions.map((q, i) => (
-          <div className="form-q" key={i}>
-            <div className="form-q-num" style={{ color: APPS.forms.accent }}>{i + 1}.</div>
-            <div className="form-q-body">
-              <div className="form-q-text">{q.q}</div>
-              <div className="form-q-type">
-                {q.type === 'scale' && <div className="scale-dots">{[1,2,3,4,5].map(n => <span key={n}>○</span>)}</div>}
-                {q.type === 'long' && <div>___________________________</div>}
-                {q.type === 'yesno' && <div>○ yes &nbsp;&nbsp; ○ no</div>}
+    <LiveWorkspaceApp
+      doc={doc}
+      accent={APPS.forms.accent}
+      label="Google Forms"
+      fallback={
+        <div className="form-body">
+          <div className="form-desc">{content.description}</div>
+          {content.questions.map((q, i) => (
+            <div className="form-q" key={i}>
+              <div className="form-q-num" style={{ color: APPS.forms.accent }}>{i + 1}.</div>
+              <div className="form-q-body">
+                <div className="form-q-text">{q.q}</div>
+                <div className="form-q-type">
+                  {q.type === 'scale' && <div className="scale-dots">{[1,2,3,4,5].map(n => <span key={n}>○</span>)}</div>}
+                  {q.type === 'long' && <div>___________________________</div>}
+                  {q.type === 'yesno' && <div>○ yes &nbsp;&nbsp; ○ no</div>}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      }
+    />
   );
 }
 
@@ -516,14 +587,19 @@ function DriveApp({ doc }: { doc: DocState }) {
       <div className="drive-grid">
         {content.items.map((it, i) => {
           const color = it.kind === 'drive' ? DRIVE_MIX[i % DRIVE_MIX.length] : (APPS[it.kind as AppKey]?.accent || '#888');
-          return (
-            <div className="drive-tile" key={i}>
+          const tileBody = (
+            <>
               <div className="drive-thumb" style={{ borderColor: color }}>
                 <span className="drive-kind" style={{ color }}>{APPS[it.kind as AppKey]?.ext || 'file'}</span>
               </div>
               <div className="drive-name">{it.name}</div>
               <div className="drive-time">{it.modified}</div>
-            </div>
+            </>
+          );
+          return (
+            it.url || it.webViewLink
+              ? <a className="drive-tile drive-tile-link" key={i} href={it.url || it.webViewLink} target="_blank" rel="noreferrer">{tileBody}</a>
+              : <div className="drive-tile" key={i}>{tileBody}</div>
           );
         })}
       </div>
@@ -827,7 +903,13 @@ export function Terminal() {
     }
     if (parsed?.type === 'open') {
       if (!currentOpen) { updateBlock(id, { status: 'error', error: 'nothing open — create something first' }); return; }
-      updateBlock(id, { status: 'success', kind: 'ack', msg: `opened in ${APPS[currentOpen.app].label}.google.com`, ackAccent: promptAccent });
+      const targetUrl = currentOpen.url;
+      if (!targetUrl) {
+        updateBlock(id, { status: 'error', error: `no live url available for ${currentOpen.title.toLowerCase()}` });
+        return;
+      }
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      updateBlock(id, { status: 'success', kind: 'ack', msg: `opened ${currentOpen.title.toLowerCase()} in ${APPS[currentOpen.app].label}.google.com`, ackAccent: promptAccent });
       return;
     }
     if (parsed?.type === 'ls') {
