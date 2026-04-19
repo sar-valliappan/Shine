@@ -2,7 +2,6 @@ import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
 import { executeDocumentAction } from './documents.js';
 import { executePresentationAction } from './presentations.js';
-import { executeSpreadsheetAction } from './spreadsheets.js';
 import type { ParseRouteResult } from './types.js';
 
 export async function executeWorkspaceAction(
@@ -14,10 +13,6 @@ export async function executeWorkspaceAction(
 		case 'create_document':
 		case 'edit_document':
 			return executeDocumentAction(action, oauthClient, apiKey);
-
-		case 'create_spreadsheet':
-		case 'edit_spreadsheet':
-			return executeSpreadsheetAction(action, oauthClient);
 
 		case 'create_presentation':
 		case 'edit_presentation':
