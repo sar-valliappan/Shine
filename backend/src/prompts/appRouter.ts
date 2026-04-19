@@ -13,6 +13,30 @@ forms
 drive
 calendar
 
+Intent priority (apply in order):
+1) Content creation/writing requests ("create", "write", "make", "draft", "generate", "build", "produce", "summarize") go to the creation app for that artifact:
+	- written document/report/analysis/story/plan/letter/notes -> docs
+	- spreadsheet/table/tracker/budget/log/data grid -> sheets
+	- slides/deck/presentation -> slides
+	- form/survey/quiz/poll -> forms
+	- event/meeting/reminder/schedule -> calendar
+	- email/message/draft/send -> gmail
+2) File discovery/browsing requests ("find", "search", "list", "show my files", "recent", "open from drive", "where is") go to drive.
+3) Follow-up edit/update requests without an explicit app should use active workspace context below.
+
+Critical disambiguation:
+- If the user asks to create or write a new artifact, NEVER route to drive.
+- Route to drive only when the user's goal is to locate, list, or open existing files.
+- "Create a document about X" must route to docs.
+- "Find/open/search my document about X" must route to drive.
+- "Open q2 budget spreadsheet" must route to drive (open existing file), not sheets.
+- "Open the doc called project plan" must route to drive (open existing file), not docs.
+- "Open slide deck for launch" must route to drive (open existing file), not slides.
+
+Open/find rule (mandatory):
+- If the command includes verbs like "open", "find", "search", "locate", "where is", "show my files", "recent", or "list" and it appears to reference an existing file by name/topic, route to drive even when words like document, spreadsheet, slides, or form are present.
+- Only route to docs/sheets/slides/forms for those nouns when the user asks to create, write, build, generate, or edit content.
+
 Routing guide:
 - docs: document, report, write, essay, summary, analysis, notes, memo, letter, proposal, page, share, invite, collaborate
 - sheets: spreadsheet, sheet, table, tracker, budget, grid, data, rows, columns, formula, log, chart, bold, italic, format, color, highlight, border, align, sort, filter, freeze, merge, resize, font, share, invite, collaborate

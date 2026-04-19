@@ -162,7 +162,7 @@ async function generateParsedActionFromPrompt(fullPrompt: string): Promise<Parse
 
 export async function parseCommandWithGemini(
 	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null },
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null },
 ): Promise<ParseResult> {
 	const contextBlock = formatActiveWorkspaceContext(active);
 	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;

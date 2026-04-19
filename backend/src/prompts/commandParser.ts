@@ -117,6 +117,11 @@ AVAILABLE ACTIONS
       Examples: "add a section about risks", "append a conclusion", "add a chapter after chapter 3 about the dog",
         "insert a section before chapter 1 about the lion"
       Use insert_section when the user clearly wants new material in the middle; use append only for end-of-doc.
+      If the user says "in the middle", "between sections", "after X", or "before X", prefer insert_section.
+      For "after X" / "before X", set section_anchor to the heading text and set section_placement accordingly.
+      For "in the middle" without a named heading, still use insert_section (do not use append).
+      For placement commands, section_anchor should be copied from DOCUMENT STRUCTURE as exactly as possible.
+      If the user references a heading by shorthand (e.g. "chapter 3"), map it to the exact heading text from DOCUMENT STRUCTURE.
 
     "style_text" — bold, italic, underline, or change font/size of a specific span
       → find_text (required): exact verbatim text from DOCUMENT STRUCTURE (e.g. heading text)
@@ -141,6 +146,7 @@ AVAILABLE ACTIONS
         "remove the lion and the wolf entire section", "remove section About Diet"
       THIS IS NOT delete_text. Use the real heading text, not a phrase like "summary section".
       Prefer delete_section over clarify when the user names any heading or chapter to remove.
+      section_heading should be copied from DOCUMENT STRUCTURE as exactly as possible (including numbering when present).
 
     "rename_document" — rename the Drive file
       → new_title (required): new Drive file name
@@ -164,6 +170,7 @@ AVAILABLE ACTIONS
     INVARIANTS:
     - find_text is always verbatim text from the doc, never a role label unless it literally appears.
     - section_heading is always a real heading line from DOCUMENT STRUCTURE.
+    - section_anchor should be a real heading line from DOCUMENT STRUCTURE whenever placement is requested.
     - Styling (bold/italic) NEVER maps to add_section or replace_text — always style_text.
     - "delete the X section" ALWAYS maps to delete_section, NEVER delete_text.
 
@@ -209,6 +216,13 @@ EMAIL SAFETY: For create_draft / edit_draft / send_email, never output placehold
 DATES & TIMES: Today is ${new Date().toISOString().slice(0, 10)}. Convert relative times like "tomorrow at 2pm", "next Friday at noon", "in 3 hours" into ISO 8601.
 
 CLARIFY SPARINGLY: Only ask for clarification if the action type itself is ambiguous and cannot be reasonably inferred. Do not ask for clarification if you can make a good inference.
+
+INTENT PRIORITY (MANDATORY):
+1) If the user asks to create/generate/write/make/build/draft a NEW artifact, choose a create_* action.
+2) Only choose search_drive or list_files when the user is trying to locate/open/browse EXISTING Drive files.
+3) Never choose search_drive/list_files for requests like "create a document about ..." even if a topic is mentioned.
+4) For "open/find/search my <artifact> ...", choose search_drive (or list_files when browsing).
+5) For follow-up edits to an active item from context, choose edit_* for that item type.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EXAMPLES

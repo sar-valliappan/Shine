@@ -423,7 +423,8 @@ async function editDocument(
 			if (built.length > 0) {
 				const doc = await docs.documents.get({ documentId: fileId });
 				const body = doc.data.body as { content?: unknown[] };
-				let insertAt = (body.content?.at(-1)?.endIndex ?? 2) - 1;
+				const tail = body.content?.at(-1) as { endIndex?: number } | undefined;
+				let insertAt = (tail?.endIndex ?? 2) - 1;
 
 				const anchor = action.section_anchor?.trim();
 				if (action.operation !== 'append' && anchor) {
@@ -436,6 +437,15 @@ async function editDocument(
 						);
 					}
 					insertAt = resolved;
+				} else if (action.operation === 'insert_section') {
+					// If Gemini chose insert_section but did not provide an anchor,
+					// place content around the middle heading instead of always appending.
+					const { sections } = extractDocumentContext(body);
+					const headedSections = sections.filter((s) => s.headingStyle !== 'PREAMBLE');
+					if (headedSections.length > 0) {
+						const middleIdx = Math.floor((headedSections.length - 1) / 2);
+						insertAt = headedSections[middleIdx].sectionEndExclusive;
+					}
 				}
 
 				const shifted = shiftDocRequestsToEnd(built, insertAt);
