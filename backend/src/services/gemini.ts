@@ -35,9 +35,24 @@ function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 			].join('\n')
 		);
 	}
+	if (active.calendarEvent) {
+		lines.push(
+			[
+				`Calendar Event — event id: ${active.calendarEvent.id}`,
+				`calendar id: ${active.calendarEvent.calendarId}`,
+				`title: ${active.calendarEvent.title || '(untitled)'}`,
+				`start: ${active.calendarEvent.start_time || '(unknown)'}`,
+				`end: ${active.calendarEvent.end_time || '(unknown)'}`,
+				`location: ${active.calendarEvent.location || '(none)'}`,
+				'description:',
+				indentBlock(active.calendarEvent.description || '(empty)'),
+			].join('\n')
+		);
+	}
 	if (!lines.length) return '';
 	return `\n\nActive workspace — the user may refer to these without naming them:\n${lines.map((l) => `- ${l}`).join('\n')}
 When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation. For the open Gmail draft, use edit_draft and include draft_id when available.
+For the open calendar event, always use create_event with the updated summary/start_time/end_time/location/description; the backend will apply that as an edit to the active event unless the user explicitly asks to create a new event.
 If the command is an edit/update request without explicitly naming another app, apply it to the currently active item type from this context.`;
 }
 
@@ -89,7 +104,7 @@ function parseJsonPayload(text: string): WorkspaceAction {
 
 export async function parseCommandWithGemini(
 	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null },
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null, calendarEvent: null, activeApp: null },
 ): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 
@@ -149,7 +164,7 @@ export async function parseCommandWithGemini(
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null }): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null, calendarEvent: null, activeApp: null }): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 

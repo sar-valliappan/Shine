@@ -9,11 +9,25 @@ export type ActiveGmailDraftRef = {
 	to: string;
 };
 
+export type ActiveCalendarEventRef = {
+	id: string;
+	calendarId: string;
+	title: string;
+	start_time?: string;
+	end_time?: string;
+	location?: string;
+	description?: string;
+};
+
+export type ActiveApp = 'docs' | 'sheets' | 'slides' | 'gmail' | 'forms' | 'drive' | 'calendar' | null;
+
 export type ActiveWorkspace = {
 	document: ActiveFileRef | null;
 	spreadsheet: ActiveFileRef | null;
 	presentation: ActiveFileRef | null;
 	gmailDraft: ActiveGmailDraftRef | null;
+	calendarEvent: ActiveCalendarEventRef | null;
+	activeApp: ActiveApp;
 };
 
 const store = new Map<string, ActiveWorkspace>();
@@ -23,6 +37,8 @@ const empty = (): ActiveWorkspace => ({
 	spreadsheet: null,
 	presentation: null,
 	gmailDraft: null,
+	calendarEvent: null,
+	activeApp: null,
 });
 
 export function getActiveWorkspace(sessionId: string): ActiveWorkspace {

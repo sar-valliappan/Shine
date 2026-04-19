@@ -5,6 +5,13 @@ export interface WorkspaceResult {
   action: string;
   title?: string;
   url?: string;
+  embedUrl?: string;
+  eventId?: string;
+  calendarId?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
   summary?: string;
   fileType: 'doc' | 'sheet' | 'drive' | 'slides' | 'calendar' | 'form' | 'gmail' | 'list' | 'system';
   items?: any[];

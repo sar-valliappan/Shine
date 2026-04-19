@@ -3,6 +3,13 @@ export type ParseRouteResult = {
 	action: string;
 	title?: string;
 	url?: string;
+	embedUrl?: string;
+	eventId?: string;
+	calendarId?: string;
+	start_time?: string;
+	end_time?: string;
+	location?: string;
+	description?: string;
 	fileType: string;
 	summary: string;
 	items?: unknown[];
