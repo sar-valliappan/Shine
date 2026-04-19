@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildSlidesPrompt, buildSlidesContentPrompt } from '../prompts/slidesPrompt.js';
 import type { ActiveWorkspace } from './activeSession.js';
+import { executeWorkspaceAction } from './executeWorkspaceAction.js';
 import type { ParseRouteResult } from './types.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────

@@ -14,6 +14,17 @@ export type EditDocumentOperation =
 export type WorkspaceAction =
 	| { action: 'create_document'; title: string; content_prompt: string; sections?: string[] }
 	| {
+			action: 'share_file';
+			fileId?: string;
+			fileUrl?: string;
+			fileType?: 'doc' | 'sheet' | 'slides' | 'form' | 'drive';
+			title?: string;
+			recipients: string[];
+			role?: 'reader' | 'commenter' | 'writer';
+			notify?: boolean;
+			message?: string;
+		}
+	| {
 			action: 'create_spreadsheet';
 			title: string;
 			headers: string[];
@@ -31,6 +42,7 @@ export type WorkspaceAction =
 		}
 	| { action: 'create_form'; title: string; questions: FormQuestion[] }
 	| { action: 'create_draft'; to: string; subject: string; body_prompt: string }
+	| { action: 'edit_draft'; draft_id?: string; to: string; subject: string; body_prompt: string }
 	| { action: 'send_email'; to: string; subject: string; body_prompt: string }
 	| { action: 'list_files'; query?: string; limit?: number }
 	| { action: 'search_drive'; query: string }

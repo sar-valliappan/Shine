@@ -1,7 +1,9 @@
 import { google } from 'googleapis';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildSheetsPrompt } from '../prompts/sheetsPrompt.js';
+import { parseCommandWithGemini } from '../services/gemini.js';
 import type { ActiveWorkspace } from './activeSession.js';
+import { executeWorkspaceAction } from './executeWorkspaceAction.js';
 import type { ParseRouteResult } from './types.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -552,6 +554,18 @@ export async function handleSheetsCommand(
 	apiKey: string | undefined,
 ): Promise<ParseRouteResult> {
 	if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+	if (/\b(share|invite|collaborate|grant access|give access)\b/i.test(command)) {
+		const parsed = await parseCommandWithGemini(command, active);
+		if (parsed.action.action === 'share_file') {
+			if (!parsed.action.fileId && active.spreadsheet) {
+				parsed.action.fileId = active.spreadsheet.id;
+				parsed.action.fileType = 'sheet';
+				parsed.action.title = active.spreadsheet.title;
+			}
+			return executeWorkspaceAction(parsed.action, oauthClient, apiKey);
+		}
+	}
 
 	const sheets = google.sheets({ version: 'v4', auth: oauthClient as any });
 
