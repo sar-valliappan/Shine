@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { routeToApp } from '../services/gemini.js';
-import { lookupDriveFilesByName } from '../workspace/drive.js';
 import {
 	executeAppCommand,
 	extractFileIdFromWorkspaceUrl,
@@ -10,8 +9,29 @@ import {
 	getActiveWorkspace,
 	updateActiveWorkspace,
 } from '../workspace/index.js';
+import type { ParseRouteResult } from '../workspace/types.js';
 
 const router = Router();
+const DRIVE_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Syncs the in-memory workspace with whatever file the UI has open.
+ * Critical for cross-origin setups (e.g. Vite :5173 → API :3001) where the
+ * express-session cookie may differ per request, so server-side workspace state
+ * set during 'create' may not be visible on the next 'edit' request.
+ */
+function applyClientWorkspaceHints(
+	sessionId: string,
+	body: {
+		activeDocumentId?: string;
+		activeDocumentTitle?: string;
+		activeSpreadsheetId?: string;
+		activeSpreadsheetTitle?: string;
+		activePresentationId?: string;
+		activePresentationTitle?: string;
+	},
+): void {
+	const prev = getActiveWorkspace(sessionId);
 
 const DRIVE_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -179,24 +199,23 @@ async function syncActiveFileFromResult(
 		};
 		patch.activeApp = 'calendar';
 	}
-	if (result.fileType === 'doc' || result.fileType === 'sheet' || result.fileType === 'slides' || result.fileType === 'form') {
-		const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
-		if (workspaceFileId) {
-			if (result.fileType === 'doc') {
-				patch.document = { id: workspaceFileId, title: title ?? prev.document?.title ?? 'Untitled' };
-				patch.activeApp = 'docs';
-			} else if (result.fileType === 'sheet') {
-				patch.spreadsheet = { id: workspaceFileId, title: title ?? prev.spreadsheet?.title ?? 'Untitled' };
-				patch.activeApp = 'sheets';
-			} else if (result.fileType === 'slides') {
-				patch.presentation = { id: workspaceFileId, title: title ?? prev.presentation?.title ?? 'Untitled' };
-				patch.activeApp = 'slides';
-			} else if (result.fileType === 'form') {
-				patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
-				patch.activeApp = 'forms';
-			}
+
+	if (workspaceFileId && (result.fileType === 'doc' || result.fileType === 'sheet' || result.fileType === 'slides' || result.fileType === 'form')) {
+		if (result.fileType === 'doc') {
+			patch.document = { id: workspaceFileId, title: activeDocumentTitle ?? documentTitleHint ?? title ?? prev.document?.title ?? 'Untitled' };
+			patch.activeApp = 'docs';
+		} else if (result.fileType === 'sheet') {
+			patch.spreadsheet = { id: workspaceFileId, title: title ?? prev.spreadsheet?.title ?? 'Untitled' };
+			patch.activeApp = 'sheets';
+		} else if (result.fileType === 'slides') {
+			patch.presentation = { id: workspaceFileId, title: title ?? prev.presentation?.title ?? 'Untitled' };
+			patch.activeApp = 'slides';
+		} else if (result.fileType === 'form') {
+			patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
+			patch.activeApp = 'forms';
 		}
 	}
+
 	if (Object.keys(patch).length) updateActiveWorkspace(sessionId, patch);
 }
 
@@ -223,10 +242,6 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const sessionId = req.sessionID;
 		applyClientWorkspaceHints(sessionId, body);
 		const active = getActiveWorkspace(sessionId);
-		const explicitDriveLookup = await lookupDriveFilesByName(command.trim(), req.oauthClient, process.env.GEMINI_API_KEY);
-		if (explicitDriveLookup) {
-			return res.json(explicitDriveLookup);
-		}
 
 		// Step 1: Gemini decides which app the user wants
 		const app = await routeToApp(command.trim(), active);

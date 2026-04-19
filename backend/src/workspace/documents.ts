@@ -436,6 +436,15 @@ async function editDocument(
 						);
 					}
 					insertAt = resolved;
+				} else if (action.operation === 'insert_section') {
+					// If Gemini chose insert_section but did not provide an anchor,
+					// place content around the middle heading instead of always appending.
+					const { sections } = extractDocumentContext(body);
+					const headedSections = sections.filter((s) => s.headingStyle !== 'PREAMBLE');
+					if (headedSections.length > 0) {
+						const middleIdx = Math.floor((headedSections.length - 1) / 2);
+						insertAt = headedSections[middleIdx].sectionEndExclusive;
+					}
 				}
 
 				const shifted = shiftDocRequestsToEnd(built, insertAt);

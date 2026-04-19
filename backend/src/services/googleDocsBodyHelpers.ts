@@ -269,17 +269,58 @@ export function extractDocumentContext(body: { content?: unknown[] } | undefined
 	return { contextString: formatDocumentStructureString(sections, driveTitle), sections };
 }
 
+function normalizeHeadingForMatch(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/^[\s"'`]+|[\s"'`]+$/g, '')
+		.replace(/\b(the|a|an)\b/g, ' ')
+		.replace(/\b(section|chapter|heading|part)\b/g, ' ')
+		.replace(/[^a-z0-9\s]/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function scoreSectionHeading(query: string, heading: string): number {
+	const q = normalizeHeadingForMatch(query);
+	const h = normalizeHeadingForMatch(heading);
+	if (!q || !h) return 0;
+	if (h === q) return 100;
+	if (h.startsWith(`${q} `) || h.endsWith(` ${q}`)) return 90;
+	if (h.includes(q)) return 80;
+	if (q.includes(h)) return 70;
+
+	const qTokens = q.split(' ').filter(Boolean);
+	const hTokens = new Set(h.split(' ').filter(Boolean));
+	const overlap = qTokens.filter((t) => hTokens.has(t)).length;
+	if (!overlap) return 0;
+	return 40 + overlap;
+}
+
+function resolveSectionByHeading(sections: DocSectionExcerpt[], headingQuery: string): DocSectionExcerpt | null {
+	const candidates = sections.filter((s) => s.headingStyle !== 'PREAMBLE' && s.headingText.trim());
+	if (!candidates.length) return null;
+
+	const scored = candidates
+		.map((s) => ({ section: s, score: scoreSectionHeading(headingQuery, s.headingText) }))
+		.filter((item) => item.score > 0)
+		.sort((a, b) => b.score - a.score);
+
+	if (!scored.length) return null;
+
+	const best = scored[0];
+	const sameBest = scored.filter((item) => item.score === best.score);
+	if (sameBest.length > 1 && best.score < 100) {
+		// Ambiguous partial match: force caller to ask for a more specific heading.
+		return null;
+	}
+
+	return best.section;
+}
+
 export function findSectionDeleteRangeByHeading(sections: DocSectionExcerpt[], sectionHeading: string): DocIndexRange | null {
-	const q = sectionHeading.trim().toLowerCase();
-	if (!q) return null;
-	const candidates = sections.filter((s) => s.headingStyle !== 'PREAMBLE');
-	for (const s of candidates) {
-		if (s.headingText.toLowerCase().includes(q)) return { startIndex: s.sectionStartIndex, endIndex: s.sectionEndExclusive };
-	}
-	for (const s of candidates) {
-		if (q.includes(s.headingText.toLowerCase().trim())) return { startIndex: s.sectionStartIndex, endIndex: s.sectionEndExclusive };
-	}
-	return null;
+	const match = resolveSectionByHeading(sections, sectionHeading);
+	if (!match) return null;
+	return { startIndex: match.sectionStartIndex, endIndex: match.sectionEndExclusive };
 }
 
 /** Docs API index to insert at: before the matched heading, or after the entire section (exclusive end). */
@@ -288,24 +329,7 @@ export function findInsertIndexRelativeToSection(
 	anchorHeading: string,
 	placement: 'before' | 'after',
 ): number | null {
-	const q = anchorHeading.trim().toLowerCase();
-	if (!q) return null;
-	const candidates = sections.filter((s) => s.headingStyle !== 'PREAMBLE');
-	let match: DocSectionExcerpt | null = null;
-	for (const s of candidates) {
-		if (s.headingText.toLowerCase().includes(q)) {
-			match = s;
-			break;
-		}
-	}
-	if (!match) {
-		for (const s of candidates) {
-			if (q.includes(s.headingText.toLowerCase().trim())) {
-				match = s;
-				break;
-			}
-		}
-	}
+	const match = resolveSectionByHeading(sections, anchorHeading);
 	if (!match) return null;
 	return placement === 'before' ? match.sectionStartIndex : match.sectionEndExclusive;
 }
