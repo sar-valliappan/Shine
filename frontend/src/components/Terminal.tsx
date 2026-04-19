@@ -1211,11 +1211,14 @@ function WindowChrome({ children, showChrome, openDoc }: { children: React.React
   );
 }
 
-function TweaksPanel({ tweaks, setTweaks, visible }: { tweaks: Tweaks; setTweaks: (t: Tweaks) => void; visible: boolean }) {
+function TweaksPanel({ tweaks, setTweaks, visible, onClose }: { tweaks: Tweaks; setTweaks: (t: Tweaks) => void; visible: boolean; onClose: () => void }) {
   if (!visible) return null;
   return (
     <div className="tweaks">
-      <div className="tweaks-title">tweaks</div>
+      <div className="tweaks-head">
+        <div className="tweaks-title">tweaks</div>
+        <button type="button" className="tweaks-close" onClick={onClose} aria-label="Close tweaks panel">×</button>
+      </div>
       <div className="tweaks-row">
         <div className="tweaks-label">density</div>
         <div className="tweaks-opts">
@@ -1229,14 +1232,6 @@ function TweaksPanel({ tweaks, setTweaks, visible }: { tweaks: Tweaks; setTweaks
         <div className="tweaks-opts">
           {([['on', true], ['off', false]] as [string, boolean][]).map(([l, v]) => (
             <button key={l} className={'tweaks-pill ' + (tweaks.chrome === v ? 'on' : '')} onClick={() => setTweaks({ ...tweaks, chrome: v })}>{l}</button>
-          ))}
-        </div>
-      </div>
-      <div className="tweaks-row">
-        <div className="tweaks-label">sidebar</div>
-        <div className="tweaks-opts">
-          {([['right', 'right'], ['below', 'below']] as [string, 'right' | 'below'][]).map(([l, v]) => (
-            <button key={l} className={'tweaks-pill ' + (tweaks.sidebar === v ? 'on' : '')} onClick={() => setTweaks({ ...tweaks, sidebar: v })}>{l}</button>
           ))}
         </div>
       </div>
@@ -1564,11 +1559,11 @@ export function Terminal({ onLogout }: { onLogout?: () => void } = {}) {
       </div>
       <button
         onClick={() => setShowTweaks(v => !v)}
-        style={{ position: 'absolute', right: 16, bottom: 16, background: 'transparent', border: '1px solid var(--line)', color: 'var(--fg-faint)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 8px', borderRadius: 3, cursor: 'pointer', zIndex: 99 }}
+        className="tweaks-toggle"
       >
         tweaks
       </button>
-      <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={showTweaks} />
+      <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={showTweaks} onClose={() => setShowTweaks(false)} />
     </WindowChrome>
   );
 }
