@@ -5,6 +5,13 @@ import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
 import type { AppName } from '../workspace/app-router.js';
 
+function indentBlock(text: string, indent = '  '): string {
+	return text
+		.split('\n')
+		.map((line) => `${indent}${line}`)
+		.join('\n');
+}
+
 function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	const lines: string[] = [];
 	if (active.document) {
@@ -16,9 +23,22 @@ function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	if (active.presentation) {
 		lines.push(`Google Slides — title: "${active.presentation.title}", file id: ${active.presentation.id}`);
 	}
+	if (active.gmailDraft) {
+		lines.push(
+			[
+				`Gmail Draft — draft id: ${active.gmailDraft.id}`,
+				`author: ${active.gmailDraft.author || '(unknown)'}`,
+				`subject: ${active.gmailDraft.subject || active.gmailDraft.title || '(untitled)'}`,
+				`to: ${active.gmailDraft.to || '(unknown)'}`,
+				'message:',
+				indentBlock(active.gmailDraft.message || '(empty)')
+			].join('\n')
+		);
+	}
 	if (!lines.length) return '';
 	return `\n\nActive workspace — the user may refer to these without naming them:\n${lines.map((l) => `- ${l}`).join('\n')}
-When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation.`;
+When they want to change the open doc, use edit_document. For the open sheet, edit_spreadsheet. For the open deck, edit_presentation. For the open Gmail draft, use edit_draft and include draft_id when available.
+If the command is an edit/update request without explicitly naming another app, apply it to the currently active item type from this context.`;
 }
 
 const DEFAULT_MODEL_CANDIDATES = [
@@ -69,7 +89,7 @@ function parseJsonPayload(text: string): WorkspaceAction {
 
 export async function parseCommandWithGemini(
 	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null },
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null },
 ): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 
@@ -129,7 +149,7 @@ export async function parseCommandWithGemini(
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null }): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null }): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 

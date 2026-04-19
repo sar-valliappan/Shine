@@ -1,8 +1,33 @@
 import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
+import { generateEditedEmailBody, generateEmailBody } from '../prompts/gmailMessageGenerator.js';
 import { executeDocumentAction } from './documents.js';
 import { executePresentationAction } from './presentations.js';
 import type { ParseRouteResult } from './types.js';
+import { parseRawEmailMessage } from './gmailDraft.js';
+
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const INVALID_RECIPIENT_PLACEHOLDERS = new Set(['unknown', 'n/a', 'na', 'none', 'null', 'undefined', 'tbd']);
+
+function normalizeToHeader(value: string | undefined): string | null {
+	const trimmed = (value ?? '').trim();
+	if (!trimmed) return null;
+	if (INVALID_RECIPIENT_PLACEHOLDERS.has(trimmed.toLowerCase())) return null;
+
+	const recipients = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+	if (!recipients.length) return null;
+
+	for (const recipient of recipients) {
+		if (SIMPLE_EMAIL_REGEX.test(recipient)) continue;
+
+		const match = recipient.match(/^.+<\s*([^\s<>@,]+@[^\s<>@,]+\.[^\s<>@,]+)\s*>$/);
+		if (match && SIMPLE_EMAIL_REGEX.test(match[1])) continue;
+
+		return null;
+	}
+
+	return recipients.join(', ');
+}
 
 export async function executeWorkspaceAction(
 	action: WorkspaceAction,
@@ -63,12 +88,41 @@ export async function executeWorkspaceAction(
 			};
 		}
 
-		case 'create_draft': {
+		case 'create_draft':
+		case 'edit_draft': {
 			const gmail = google.gmail({ version: 'v1', auth: oauthClient as any });
-			const to = action.to?.trim();
+			const requestedDraftId = action.action === 'edit_draft' ? action.draft_id?.trim() : undefined;
+
+			let currentDraftBody = '';
+			if (requestedDraftId) {
+				try {
+					const existingDraft = await gmail.users.drafts.get({ userId: 'me', id: requestedDraftId, format: 'raw' });
+					const raw = existingDraft.data.message?.raw;
+					if (raw) {
+						currentDraftBody = parseRawEmailMessage(raw).body;
+					}
+				} catch (error) {
+					console.error('[executeWorkspaceAction] failed to load current draft body:', error);
+				}
+			}
+
+			const to = normalizeToHeader(action.to);
 			const subject = action.subject?.trim();
-			const body = action.body_prompt?.trim();
-			if (!to || !subject || !body) throw new Error('create_draft requires to, subject, body_prompt');
+			const bodyPrompt = action.body_prompt?.trim();
+
+			if (!to) {
+				return {
+					action: 'clarify',
+					title: 'Clarification needed',
+					fileType: 'system',
+					summary: 'Please provide a valid recipient email address (for example, name@example.com).',
+				};
+			}
+			if (!subject || !bodyPrompt) throw new Error(`${action.action} requires to, subject, body_prompt`);
+
+			const body = requestedDraftId
+				? await generateEditedEmailBody(subject, currentDraftBody, bodyPrompt, apiKey)
+				: await generateEmailBody(subject, bodyPrompt, apiKey);
 
 			const raw = Buffer.from(
 				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n'),
@@ -78,23 +132,45 @@ export async function executeWorkspaceAction(
 				.replace(/\//g, '_')
 				.replace(/=+$/g, '');
 
-			const draft = await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+			const draft = requestedDraftId
+				? await gmail.users.drafts.update({
+						userId: 'me',
+						id: requestedDraftId,
+						requestBody: {
+							id: requestedDraftId,
+							message: { raw },
+						},
+					})
+				: await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+
+			const draftId = draft.data.id || requestedDraftId;
+			if (!draftId) throw new Error('Failed to create or update draft');
 
 			return {
-				action: 'create_draft',
+				action: action.action,
 				title: subject,
-				url: `https://mail.google.com/mail/#drafts/${draft.data.id}`,
+				url: `https://mail.google.com/mail/#drafts/${draftId}`,
 				fileType: 'gmail',
-				summary: `Draft email to ${to}: ${subject}`,
+				summary: `${requestedDraftId ? 'Updated' : 'Drafted'} email to ${to}: ${subject}`,
 			};
 		}
 
 		case 'send_email': {
 			const gmail = google.gmail({ version: 'v1', auth: oauthClient as any });
-			const to = action.to?.trim();
+			const to = normalizeToHeader(action.to);
 			const subject = action.subject?.trim();
-			const body = action.body_prompt?.trim();
-			if (!to || !subject || !body) throw new Error('send_email requires to, subject, body_prompt');
+			const bodyPrompt = action.body_prompt?.trim();
+			if (!to) {
+				return {
+					action: 'clarify',
+					title: 'Clarification needed',
+					fileType: 'system',
+					summary: 'Please provide a valid recipient email address (for example, name@example.com).',
+				};
+			}
+			if (!subject || !bodyPrompt) throw new Error('send_email requires to, subject, body_prompt');
+
+			const body = await generateEmailBody(subject, bodyPrompt, apiKey);
 
 			const raw = Buffer.from(
 				[`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=utf-8', '', body].join('\n'),

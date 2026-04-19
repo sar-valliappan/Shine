@@ -1,7 +1,9 @@
 export {
 	extractFileIdFromWorkspaceUrl,
+	extractGmailDraftIdFromUrl,
 	getActiveWorkspace,
 	updateActiveWorkspace,
+	type ActiveGmailDraftRef,
 	type ActiveFileRef,
 	type ActiveWorkspace,
 } from './activeSession.js';
@@ -10,3 +12,4 @@ export { executeDocumentAction } from './documents.js';
 export { executeWorkspaceAction } from './executeWorkspaceAction.js';
 export { executePresentationAction } from './presentations.js';
 export { handleSheetsCommand } from './spreadsheets.js';
+export { loadGmailDraftContext, type GmailDraftContext, parseRawEmailMessage } from './gmailDraft.js';

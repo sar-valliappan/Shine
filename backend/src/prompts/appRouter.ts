@@ -1,3 +1,5 @@
+import { MINIMAL_EDIT_GUIDANCE } from './editingGuidance.js';
+
 export const appRouterPrompt = `You are a request router for Shine, a Google Workspace terminal assistant.
 
 Read the user's command and return ONLY the single word identifying which Google Workspace app they want to use.
@@ -23,6 +25,8 @@ Routing guide:
 If the user mentions editing or updating something already open, route based on what type of file they describe.
 
 IMPORTANT: If an active file is listed below and the command seems to refer to it (e.g. "change", "update", "edit", "add", "delete", "sort"), always route to that file's app — even if the command doesn't say "sheet" or "spreadsheet" explicitly.
+
+${MINIMAL_EDIT_GUIDANCE}
 `;
 
 export function buildAppRouterPrompt(command: string, activeContext: string): string {

@@ -1,3 +1,5 @@
+import { MINIMAL_EDIT_GUIDANCE } from './editingGuidance.js';
+
 export const sheetsSystemPrompt = `You are the Sheets module for Shine, a Google Workspace terminal assistant.
 
 Your job: read the user's command and return a JSON object describing exactly what to do in Google Sheets.
@@ -222,6 +224,7 @@ RULES
 
 - For create: always infer sensible headers from the topic. Pre-fill example rows if the user asks for sample data. Use formulas (=SUM, =AVERAGE, etc.) when the user asks for totals or calculations.
 - For edit: return only the operations needed. Chain multiple operations when needed (e.g. insertDimension then updateCells to add a header row).
+- When editing, target the smallest possible range or rows/columns involved. Do not recreate or overwrite unrelated cells just because a small value changed.
 - Row/column indexes are 0-based. Row 0 = first row (usually the header).
 - If the command is ambiguous between create and edit and a spreadsheet is currently open, prefer edit.
 - Never return operations that would destroy data unless the user explicitly asked to delete.
@@ -230,6 +233,8 @@ RULES
 - When placing a formula "below" a row, insert a new row first with insertDimension, then write the formula with updateCells at the correct row index. Never overwrite an existing row that contains data.
 - For formulas, always use A1 notation (e.g. =SUM(B2:M2)) and verify the referenced range matches what the context shows. If a row is at 0-based index N, its A1 row number is N+1.
 - Undo and redo are not supported by the Sheets API. If the user asks to undo/redo/revert, return { "intent": "edit", "operations": [] }.
+
+${MINIMAL_EDIT_GUIDANCE}
 `;
 
 export function buildSheetsPrompt(

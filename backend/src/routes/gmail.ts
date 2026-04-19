@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { loadGmailDraftContext, updateActiveWorkspace } from '../workspace/index.js';
 
 const router = Router();
 
@@ -83,6 +84,28 @@ function parseRawEmailMessage(raw: string): { to: string; subject: string; body:
   return { to, subject, body };
 }
 
+async function syncActiveGmailDraft(req: Request, draftId: string, fallbackSubject?: string): Promise<void> {
+  const sessionId = (req.session as any)?.id;
+  if (!sessionId) return;
+
+  const loadedDraft = await loadGmailDraftContext(req.oauthClient, draftId).catch((error) => {
+    console.error('[gmail] failed to load active draft context:', error);
+    return null;
+  });
+  if (!loadedDraft) return;
+
+  updateActiveWorkspace(sessionId, {
+    gmailDraft: {
+      id: loadedDraft.id,
+      title: loadedDraft.subject || fallbackSubject || 'Untitled',
+      author: loadedDraft.author,
+      subject: loadedDraft.subject,
+      message: loadedDraft.message,
+      to: loadedDraft.to,
+    },
+  });
+}
+
 /**
  * POST /api/gmail/draft
  * Creates a Gmail draft with the provided recipient, subject, and body
@@ -134,6 +157,8 @@ router.post('/draft', requireAuth, async (req: Request, res: Response) => {
     if (!draftId) {
       return res.status(500).json({ error: 'Failed to create Gmail draft' });
     }
+
+    await syncActiveGmailDraft(req, draftId, subject.trim());
 
     const url = `https://mail.google.com/mail/#drafts/${draftId}`;
 
@@ -280,6 +305,7 @@ router.get('/drafts/:id', requireAuth, async (req: Request, res: Response) => {
     if (!raw) return res.status(404).json({ error: 'Draft not found or missing raw content' });
 
     const parsed = parseRawEmailMessage(raw);
+    await syncActiveGmailDraft(req, draftId, parsed.subject);
     const result: GmailDraftDetail = {
       id: draft.id || draftId,
       to: parsed.to,
@@ -326,6 +352,7 @@ router.put('/drafts/:id', requireAuth, async (req: Request, res: Response) => {
     });
 
     const updatedId = updateResponse.data.id || draftId;
+    await syncActiveGmailDraft(req, updatedId, subject);
     res.json({
       id: updatedId,
       url: `https://mail.google.com/mail/#drafts/${updatedId}`,
@@ -354,6 +381,11 @@ router.post('/drafts/:id/send', requireAuth, async (req: Request, res: Response)
         id: draftId,
       },
     });
+
+    const sessionId = (req.session as any)?.id;
+    if (sessionId) {
+      updateActiveWorkspace(sessionId, { gmailDraft: null });
+    }
 
     const messageId = sendResponse.data.id || '';
     res.json({
