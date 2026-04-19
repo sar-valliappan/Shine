@@ -569,6 +569,9 @@ export async function handleSheetsCommand(
 
 	const sheets = google.sheets({ version: 'v4', auth: oauthClient as any });
 
+	// Hoisted so the overwrite guard below can reference the live grid
+	let liveGrid: string[][] = [];
+
 	// Build context block for Gemini
 	let activeContext = '';
 	if (active.spreadsheet) {
@@ -599,17 +602,17 @@ export async function handleSheetsCommand(
 					spreadsheetId: active.spreadsheet.id,
 					range: `${firstSheetTitle}!A1:Z100`,
 				});
-				const rows = dataRes.data.values ?? [];
-				if (rows.length > 0) {
-					const headerRow = rows[0];
-					const dataRows = rows.slice(1);
+				const allRows = dataRes.data.values ?? [];
+				if (allRows.length > 0) {
+					liveGrid = allRows as string[][];
+					const headerRow = allRows[0];
+					const dataRows = allRows.slice(1);
 					const colCount = headerRow.length;
 					const lines = [
 						`\nSheet "${firstSheetTitle}" has ${colCount} columns and ${dataRows.length} data row(s).`,
 						`Headers (row 0): ${JSON.stringify(headerRow)}`,
 						`Column indexes: ${headerRow.map((h: string, i: number) => `${i}="${h}"`).join(', ')}`,
 					];
-					// Include up to 10 data rows so Gemini can see existing values
 					dataRows.slice(0, 10).forEach((row, i) => {
 						lines.push(`Row ${i + 1}: ${JSON.stringify(row)}`);
 					});

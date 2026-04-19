@@ -84,7 +84,7 @@ export async function executeWorkspaceAction(
 
 		case 'create_presentation':
 		case 'edit_presentation':
-			return executePresentationAction(action, oauthClient, apiKey);
+			throw new Error('Slides actions should be routed through handleSlidesCommand directly');
 
 		case 'share_file': {
 			const fileId = action.fileId?.trim() || (action.fileUrl ? extractFileIdFromWorkspaceUrl(action.fileUrl) : null);
