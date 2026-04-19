@@ -11,7 +11,7 @@ function App() {
   }, [])
 
   if (loggedIn === null) return null
-  return loggedIn ? <Terminal /> : <Login />
+  return loggedIn ? <Terminal onLogout={() => setLoggedIn(false)} /> : <Login />
 }
 
 export default App
