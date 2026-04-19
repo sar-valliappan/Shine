@@ -87,7 +87,7 @@ AVAILABLE ACTIONS
    Trigger phrases: "search", "find", "look for", "where is"
    Fields:
      - query (required): what to search for
-
+     
 11. share_file
    Use when: user wants to share a file or invite collaborators to an existing Docs, Sheets, Slides, Forms, or Drive item
    Trigger phrases: "share", "invite", "collaborate", "grant access", "give access"
@@ -102,21 +102,77 @@ AVAILABLE ACTIONS
      - message (optional): custom invite message
 
 12. edit_document
-    Use when: user wants to change the active Google Doc (headings, bullets, new paragraphs, find/replace, delete text, or tables)
-    Trigger phrases: "add a section", "append", "replace X with Y", "remove the phrase", "delete the word", "insert a table", "add a 4x3 table"
-    Fields:
-      - operation (required): one of:
-          - "append" | "add_section" — append AI-written markdown content (default when user asks to add or expand writing)
-              → content_prompt (required), heading (optional)
-          - "replace_text" — Docs find/replace
-              → find_text (required), replace_with (string, use "" to clear), match_case (optional boolean)
-          - "delete_text" — remove every occurrence of a substring
-              → find_text (required), match_case (optional boolean)
-          - "insert_table" — insert a table at the end of the document
-              → table_rows (optional, default 3), table_columns (optional, default 3)
-              → table_headers (optional string[]) for the first row
-              → table_data (optional array of string arrays) for additional rows
-    Notes: For replace/delete, copy find_text exactly as the user describes the phrase to match (short literal substring).
+    Use when: user wants to modify the active Google Doc.
+
+    BEFORE FILLING ANY FIELD: Read the DOCUMENT STRUCTURE block (if provided). Resolve every user reference
+    against real text from that structure. Never guess or invent find_text values.
+
+    OPERATIONS — pick the one that matches the user's intent:
+
+    "append" | "add_section" | "insert_section" — add new AI-written content to the doc
+      → content_prompt (required): what to write
+      → heading (optional): section title
+      → section_anchor (optional): heading text from DOCUMENT STRUCTURE to insert near (substring match)
+      → section_placement (optional): "before" | "after" — where to insert relative to section_anchor (default "after")
+      Examples: "add a section about risks", "append a conclusion", "add a chapter after chapter 3 about the dog",
+        "insert a section before chapter 1 about the lion"
+      Use insert_section when the user clearly wants new material in the middle; use append only for end-of-doc.
+      If the user says "in the middle", "between sections", "after X", or "before X", prefer insert_section.
+      For "after X" / "before X", set section_anchor to the heading text and set section_placement accordingly.
+      For "in the middle" without a named heading, still use insert_section (do not use append).
+      For placement commands, section_anchor should be copied from DOCUMENT STRUCTURE as exactly as possible.
+      If the user references a heading by shorthand (e.g. "chapter 3"), map it to the exact heading text from DOCUMENT STRUCTURE.
+
+    "style_text" — bold, italic, underline, or change font/size of a specific span
+      → find_text (required): exact verbatim text from DOCUMENT STRUCTURE (e.g. heading text)
+      → bold / italic / underline / strikethrough (boolean, set true to apply, false to clear)
+      → font_family (optional string), font_size (optional number, pt)
+      Examples: "bold the title", "italicize the Summary heading", "underline Introduction"
+      NEVER map styling to add_section or replace_text — always style_text.
+
+    "set_font" — change font/size for the whole document or a specific span
+      → font_family (e.g. "Times New Roman") and/or font_size (number, pt)
+      → find_text (optional): if provided, only that span is styled; omit for whole document
+      Examples: "change the font to Times New Roman", "make everything Arial 12pt"
+
+    "rewrite_document" — replace the entire document body with newly generated content
+      → content_prompt (required): what the new document should contain
+      Examples: "rewrite it with 10 chapters", "start over as a legal memo"
+      NOT append — this clears the body first.
+
+    "delete_section" — delete a whole heading + its body content
+      → section_heading (required): the exact heading text from DOCUMENT STRUCTURE
+      Examples: "delete the summary section", "remove the introduction", "delete chapter 2",
+        "remove the lion and the wolf entire section", "remove section About Diet"
+      THIS IS NOT delete_text. Use the real heading text, not a phrase like "summary section".
+      Prefer delete_section over clarify when the user names any heading or chapter to remove.
+      section_heading should be copied from DOCUMENT STRUCTURE as exactly as possible (including numbering when present).
+
+    "rename_document" — rename the Drive file
+      → new_title (required): new Drive file name
+      Examples: "rename this to Q3 Report", "call it Final Draft"
+
+    "replace_text" — find/replace a specific substring everywhere
+      → find_text (required): exact substring, replace_with (string), match_case (optional)
+      Examples: "replace 'foo' with 'bar'", "change every X to Y"
+
+    "delete_text" — remove every occurrence of a specific phrase (not a whole section)
+      → find_text (required): exact substring to delete
+      Examples: "remove the word 'however'", "delete this phrase: X"
+
+    "insert_table" — insert a table at the end
+      → table_rows, table_columns, table_headers (string[]), table_data (string[][])
+
+    "insert_page_break" — insert a page break at the end of the document
+
+    "undo" — undo the last doc edit in this session (no extra fields)
+
+    INVARIANTS:
+    - find_text is always verbatim text from the doc, never a role label unless it literally appears.
+    - section_heading is always a real heading line from DOCUMENT STRUCTURE.
+    - section_anchor should be a real heading line from DOCUMENT STRUCTURE whenever placement is requested.
+    - Styling (bold/italic) NEVER maps to add_section or replace_text — always style_text.
+    - "delete the X section" ALWAYS maps to delete_section, NEVER delete_text.
 
 13. edit_spreadsheet
     Use when: user wants to modify the active Google Sheet (row/column operations)
