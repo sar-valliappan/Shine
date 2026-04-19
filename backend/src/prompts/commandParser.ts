@@ -9,8 +9,8 @@ Return ONLY valid JSON with this shape:
 Allowed actions and fields:
 
 1) create_document
-  - title: string
-  - content_prompt: string
+  - title: string (required — infer a clean descriptive title, never "Untitled")
+  - content_prompt: string (required — describe what the document should contain, e.g. "A comprehensive SWOT analysis of Amazon covering strengths, weaknesses, opportunities, and threats")
   - sections?: string[]
 
 2) create_spreadsheet

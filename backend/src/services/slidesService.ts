@@ -87,35 +87,6 @@ function setBackground(objectId: string, color: RgbColor) {
   };
 }
 
-export async function generateDocumentContent(
-  title: string,
-  contentPrompt: string,
-  apiKey: string,
-): Promise<string> {
-  try {
-    const client = new GoogleGenerativeAI(apiKey);
-    const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL ?? 'gemini-2.0-flash' });
-
-    const instruction = `Write a comprehensive, well-structured document titled "${title}".
-Description: ${contentPrompt}
-
-Requirements:
-- Use clear section headings in ALL CAPS followed by a newline
-- Write detailed paragraphs under each heading
-- Include an introduction and conclusion
-- Be thorough and professional
-- Return only the document text, no markdown formatting, no code fences
-
-Start directly with the first section heading.`;
-
-    const result = await model.generateContent(instruction);
-    return result.response.text().trim();
-  } catch (err) {
-    console.error('[generateDocumentContent] Gemini error:', err);
-    return `${title}\n\n${contentPrompt}`;
-  }
-}
-
 export async function createStyledPresentation(
   title: string,
   slidePrompts: string[],

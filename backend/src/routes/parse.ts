@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
-import { createStyledPresentation, addSlide, editSlide, deleteSlide, generateDocumentContent } from '../services/slidesService.js';
+import { createStyledPresentation, addSlide, editSlide, deleteSlide } from '../services/slidesService.js';
+import { generateDocumentContent, buildDocRequests } from '../services/docsService.js';
 import { getActiveFile, setActiveFile, addToHistory } from '../services/sessionContext.js';
 import type { WorkspaceAction } from '../types/actions.js';
 
@@ -18,21 +19,25 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 		case 'create_document': {
 			const docs = google.docs({ version: 'v1', auth: oauthClient });
 			const title = action.title?.trim();
-			const contentPrompt = action.content_prompt?.trim();
-			if (!title || !contentPrompt) throw new Error('create_document requires title and content_prompt');
+			const sections = (action as any).sections as string[] | undefined;
+			const contentPrompt =
+				action.content_prompt?.trim() ||
+				(sections?.length ? `Write a detailed document covering these sections: ${sections.join(', ')}` : '') ||
+				`Write a comprehensive document about: ${title}`;
+			if (!title) throw new Error('create_document requires title');
 
-			const content = apiKey
+			const markdown = apiKey
 				? await generateDocumentContent(title, contentPrompt, apiKey)
-				: contentPrompt;
+				: `# ${title}\n\n${contentPrompt}`;
 
 			const doc = await docs.documents.create({ requestBody: { title } });
 			const documentId = doc.data.documentId;
 			if (!documentId) throw new Error('Failed to create document');
 
-			await docs.documents.batchUpdate({
-				documentId,
-				requestBody: { requests: [{ insertText: { location: { index: 1 }, text: content } }] },
-			});
+			const requests = buildDocRequests(markdown);
+			if (requests.length > 0) {
+				await docs.documents.batchUpdate({ documentId, requestBody: { requests } });
+			}
 
 			return {
 				action: 'create_document',
