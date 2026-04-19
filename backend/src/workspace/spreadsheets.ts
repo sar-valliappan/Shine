@@ -221,6 +221,7 @@ function buildChartObject(
 					}],
 				},
 			},
+			targetAxis: chartType?.toUpperCase() === 'BAR' ? 'BOTTOM_AXIS' : 'LEFT_AXIS',
 		});
 	}
 	return {
@@ -228,6 +229,7 @@ function buildChartObject(
 			title: title ?? '',
 			basicChart: {
 				chartType: chartTypeMap[chartType?.toUpperCase()] ?? 'COLUMN',
+				headerCount: 1,
 				domains: [{
 					domain: {
 						sourceRange: {
@@ -254,23 +256,37 @@ function buildRequest(op: SheetsOperation): any {
 	const sid = (op as any).sheetId ?? 0;
 
 	switch (op.op) {
-		case 'updateCells':
+		case 'updateCells': {
+			const rows2d = (op.values ?? []).map(r => Array.isArray(r) ? r : [r]);
 			return {
 				updateCells: {
-					range: { sheetId: sid, startRowIndex: op.startRow, startColumnIndex: op.startColumn },
-					rows: op.values.map((row) => ({ values: (row as unknown[]).map((v) => toCell(v, true)) })),
+					range: {
+						sheetId: sid,
+						startRowIndex: op.startRow,
+						startColumnIndex: op.startColumn,
+						endRowIndex: op.startRow + rows2d.length,
+						endColumnIndex: op.startColumn + Math.max(0, ...rows2d.map(r => r.length)),
+					},
+					rows: rows2d.map((row) => ({
+						values: row.map((v) => toCell(v, true)),
+					})),
 					fields: 'userEnteredValue',
 				},
 			};
+		}
 
-		case 'appendCells':
+		case 'appendCells': {
+			const rows2d = (op.values ?? []).map(r => Array.isArray(r) ? r : [r]);
 			return {
 				appendCells: {
 					sheetId: sid,
-					rows: op.values.map((row) => ({ values: (row as unknown[]).map((v) => toCell(v, true)) })),
+					rows: rows2d.map((row) => ({
+						values: row.map((v) => toCell(v, true)),
+					})),
 					fields: 'userEnteredValue',
 				},
 			};
+		}
 
 		case 'findReplace':
 			return {
@@ -569,8 +585,6 @@ export async function handleSheetsCommand(
 
 	const sheets = google.sheets({ version: 'v4', auth: oauthClient as any });
 
-	// Hoisted so the overwrite guard below can reference the live grid
-	let liveGrid: string[][] = [];
 
 	// Build context block for Gemini
 	let activeContext = '';
@@ -604,7 +618,6 @@ export async function handleSheetsCommand(
 				});
 				const allRows = dataRes.data.values ?? [];
 				if (allRows.length > 0) {
-					liveGrid = allRows as string[][];
 					const headerRow = allRows[0];
 					const dataRows = allRows.slice(1);
 					const colCount = headerRow.length;
@@ -614,7 +627,7 @@ export async function handleSheetsCommand(
 						`Column indexes: ${headerRow.map((h: string, i: number) => `${i}="${h}"`).join(', ')}`,
 					];
 					dataRows.slice(0, 10).forEach((row, i) => {
-						lines.push(`Row ${i + 1}: ${JSON.stringify(row)}`);
+						lines.push(`Row ${i + 1} (0-based index: ${i + 1}): ${JSON.stringify(row)}`);
 					});
 					if (dataRows.length > 10) lines.push(`... (${dataRows.length - 10} more rows)`);
 					dataContext = '\n' + lines.join('\n');
