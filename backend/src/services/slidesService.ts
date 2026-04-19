@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 interface SlideContent {
   title: string;
   bullets: string[];
+  imagePrompt?: string;
 }
 
 interface RgbColor {
@@ -45,10 +46,10 @@ async function generateSlideContent(
     );
 
     const instruction = isTitle
-      ? `Create a title slide for: "${prompt}". Return ONLY valid JSON (no markdown fences):
-{"title": "presentation title", "bullets": ["one compelling subtitle"]}`
-      : `Create slide content for: "${prompt}". Return ONLY valid JSON (no markdown fences):
-{"title": "concise slide title (5-7 words)", "bullets": ["point 1", "point 2", "point 3", "point 4"]}
+      ? `Create a stunning title slide for: "${prompt}". Return ONLY valid JSON (no markdown fences):
+{"title": "presentation title", "bullets": ["one compelling subtitle"], "imagePrompt": "highly detailed, descriptive image generation prompt related to the title (e.g. 'a fast cheetah running in the savanna sunset')"}`
+      : `Create highly engaging slide content for: "${prompt}". Return ONLY valid JSON (no markdown fences):
+{"title": "concise slide title (5-7 words)", "bullets": ["point 1", "point 2", "point 3", "point 4"], "imagePrompt": "highly detailed image generation prompt related to this specific slide"}
 Each bullet must be under 12 words.`;
 
     const result = await model.generateContent(instruction);
@@ -130,25 +131,43 @@ export async function createStyledPresentation(
   const requests: any[] = [];
 
   // --- First slide (title) ---
-  if (titleEl?.objectId) {
+  if (titleEl?.objectId && contents[0].title) {
     requests.push(
-      { deleteText: { objectId: titleEl.objectId, textRange: { type: 'ALL' } } },
       { insertText: { objectId: titleEl.objectId, text: contents[0].title, insertionIndex: 0 } },
       whiteText(titleEl.objectId, 44, true),
     );
   }
-  if (subtitleEl?.objectId && contents[0].bullets.length > 0) {
+  if (subtitleEl?.objectId && (contents[0].bullets?.length || 0) > 0) {
     requests.push(
-      { deleteText: { objectId: subtitleEl.objectId, textRange: { type: 'ALL' } } },
       {
         insertText: {
           objectId: subtitleEl.objectId,
-          text: contents[0].bullets.join('\n'),
+          text: (contents[0].bullets || []).join('\n'),
           insertionIndex: 0,
         },
       },
       whiteText(subtitleEl.objectId, 24),
     );
+  }
+  if (contents[0].imagePrompt) {
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(contents[0].imagePrompt)}`;
+    requests.push({
+      createImage: {
+        objectId: `title_img_${Date.now()}`,
+        url: imageUrl,
+        elementProperties: {
+          pageObjectId: defaultSlideId,
+          size: { width: { magnitude: 360, unit: 'PT' }, height: { magnitude: 405, unit: 'PT' } },
+          transform: { scaleX: 1, scaleY: 1, translateX: 360, translateY: 0, unit: 'PT' }
+        }
+      }
+    });
+    if (titleEl?.objectId) {
+      requests.push({ updatePageElementTransform: { objectId: titleEl.objectId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
+    }
+    if (subtitleEl?.objectId) {
+      requests.push({ updatePageElementTransform: { objectId: subtitleEl.objectId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
+    }
   }
   requests.push(setBackground(defaultSlideId, pickColor(0, slidePrompts[0])));
 
@@ -171,16 +190,35 @@ export async function createStyledPresentation(
       },
     });
 
-    requests.push(
-      { insertText: { objectId: titleId, text: content.title, insertionIndex: 0 } },
-      whiteText(titleId, 36, true),
-    );
-
-    if (content.bullets.length > 0) {
+    if (content.title) {
       requests.push(
-        { insertText: { objectId: bodyId, text: content.bullets.join('\n'), insertionIndex: 0 } },
+        { insertText: { objectId: titleId, text: content.title, insertionIndex: 0 } },
+        whiteText(titleId, 36, true),
+      );
+    }
+
+    if ((content.bullets?.length || 0) > 0) {
+      requests.push(
+        { insertText: { objectId: bodyId, text: (content.bullets || []).join('\n'), insertionIndex: 0 } },
         whiteText(bodyId, 20),
       );
+    }
+
+    if (content.imagePrompt) {
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(content.imagePrompt)}`;
+      requests.push({
+        createImage: {
+          objectId: `${slideId}_img`,
+          url: imageUrl,
+          elementProperties: {
+            pageObjectId: slideId,
+            size: { width: { magnitude: 360, unit: 'PT' }, height: { magnitude: 405, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 360, translateY: 0, unit: 'PT' }
+          }
+        }
+      });
+      requests.push({ updatePageElementTransform: { objectId: titleId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
+      requests.push({ updatePageElementTransform: { objectId: bodyId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
     }
 
     requests.push(setBackground(slideId, pickColor(i, slidePrompts[i])));
@@ -226,16 +264,39 @@ export async function addSlide(
         ],
       },
     },
-    { insertText: { objectId: titleId, text: content.title, insertionIndex: 0 } },
-    whiteText(titleId, 36, true),
+
     setBackground(slideId, THEME_COLORS[slideCount % THEME_COLORS.length]),
   ];
 
-  if (content.bullets.length > 0) {
+  if (content.title) {
     requests.push(
-      { insertText: { objectId: bodyId, text: content.bullets.join('\n'), insertionIndex: 0 } },
+      { insertText: { objectId: titleId, text: content.title, insertionIndex: 0 } },
+      whiteText(titleId, 36, true),
+    );
+  }
+
+  if ((content.bullets?.length || 0) > 0) {
+    requests.push(
+      { insertText: { objectId: bodyId, text: (content.bullets || []).join('\n'), insertionIndex: 0 } },
       whiteText(bodyId, 20),
     );
+  }
+
+  if (content.imagePrompt) {
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(content.imagePrompt)}`;
+    requests.push({
+      createImage: {
+        objectId: `${slideId}_img`,
+        url: imageUrl,
+        elementProperties: {
+          pageObjectId: slideId,
+          size: { width: { magnitude: 360, unit: 'PT' }, height: { magnitude: 405, unit: 'PT' } },
+          transform: { scaleX: 1, scaleY: 1, translateX: 360, translateY: 0, unit: 'PT' }
+        }
+      }
+    });
+    requests.push({ updatePageElementTransform: { objectId: titleId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
+    requests.push({ updatePageElementTransform: { objectId: bodyId, transform: { scaleX: 0.5, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' }, applyMode: 'RELATIVE' } });
   }
 
   await slidesApi.presentations.batchUpdate({ presentationId, requestBody: { requests } });

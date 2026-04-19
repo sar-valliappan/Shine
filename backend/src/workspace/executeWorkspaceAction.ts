@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
 import { executeDocumentAction } from './documents.js';
-import { executePresentationAction } from './presentations.js';
+
 import type { ParseRouteResult } from './types.js';
 
 export async function executeWorkspaceAction(
@@ -16,7 +16,7 @@ export async function executeWorkspaceAction(
 
 		case 'create_presentation':
 		case 'edit_presentation':
-			return executePresentationAction(action, oauthClient, apiKey);
+			throw new Error('Slides actions should be routed through handleSlidesCommand directly');
 
 		case 'create_event': {
 			const calendar = google.calendar({ version: 'v3', auth: oauthClient as any });
