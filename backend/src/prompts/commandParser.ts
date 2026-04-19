@@ -78,4 +78,7 @@ Rules:
 - Do not include explanation text, only JSON.
 - For create_presentation, generate one slide_prompt per slide the user requests. Make each prompt descriptive enough to generate full slide content.
 - Use edit_presentation / edit_document / edit_spreadsheet when the user refers to modifying an existing file (e.g. "add a slide", "change slide 3", "add a section about X", "add a row").
-- Use create_* when the user clearly wants a brand new file.`;
+- Use create_* when the user clearly wants a brand new file.
+- "give me", "generate", "show me", "write me", "make me", "produce", "build me" all mean create_*.
+- If the user asks for any kind of analysis, report, summary, or written content (e.g. "SWOT analysis", "market report", "essay about X"), use create_document with a descriptive title and content_prompt.
+- Infer a clean, descriptive title from the request — never use "Untitled". For "give me a SWOT analysis of Google" use title "SWOT Analysis of Google".`;

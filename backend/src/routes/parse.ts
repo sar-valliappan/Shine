@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
-import { createStyledPresentation, addSlide, editSlide, deleteSlide } from '../services/slidesService.js';
+import { createStyledPresentation, addSlide, editSlide, deleteSlide, generateDocumentContent } from '../services/slidesService.js';
 import { getActiveFile, setActiveFile, addToHistory } from '../services/sessionContext.js';
 import type { WorkspaceAction } from '../types/actions.js';
 
@@ -18,8 +18,12 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 		case 'create_document': {
 			const docs = google.docs({ version: 'v1', auth: oauthClient });
 			const title = action.title?.trim();
-			const content = action.content_prompt?.trim();
-			if (!title || !content) throw new Error('create_document requires title and content_prompt');
+			const contentPrompt = action.content_prompt?.trim();
+			if (!title || !contentPrompt) throw new Error('create_document requires title and content_prompt');
+
+			const content = apiKey
+				? await generateDocumentContent(title, contentPrompt, apiKey)
+				: contentPrompt;
 
 			const doc = await docs.documents.create({ requestBody: { title } });
 			const documentId = doc.data.documentId;
@@ -324,6 +328,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const activeFile = getActiveFile(sessionId);
 
 		const parsed = await parseCommandWithGemini(command.trim(), { activeFile });
+		console.log('[parse] action:', parsed.action.action, '| raw:', parsed.rawText?.slice(0, 200));
 		const action = parsed.action;
 
 		// Inject fileId from session for edit actions
