@@ -77,7 +77,15 @@ AVAILABLE ACTIONS
    Fields:
      - query (required): what to search for
 
-10. clarify
+10. edit_document
+    Use when: user wants to add to or modify an existing document (requires active doc context)
+    Trigger phrases: "add a section", "append", "add to the doc", "update the document", "add more"
+    Fields:
+      - operation (required): "add_section" or "append"
+      - heading (optional): section heading to add
+      - content_prompt (required): what content to add
+
+11. clarify
     Use when: you genuinely cannot determine the intent or a required field is missing and cannot be inferred
     Fields:
       - question (required): one specific question to resolve the ambiguity

@@ -27,7 +27,14 @@ export type WorkspaceAction =
 	| { action: 'send_email'; to: string; subject: string; body_prompt: string }
 	| { action: 'list_files'; query?: string; limit?: number }
 	| { action: 'search_drive'; query: string }
-	| { action: 'clarify'; question: string };
+	| { action: 'clarify'; question: string }
+	| {
+			action: 'edit_document';
+			fileId?: string;
+			operation: 'add_section' | 'append';
+			heading?: string;
+			content_prompt: string;
+		};
 
 export type ParseResult = {
 	action: WorkspaceAction;

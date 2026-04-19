@@ -3,9 +3,9 @@ import { commandParserPrompt } from '../prompts/commandParser.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 
 const DEFAULT_MODEL_CANDIDATES = [
-	'gemini-2.5-flash-lite',
-	'gemini-2.0-flash',
-	'gemini-1.5-flash',
+	'gemma-3-27b-it',
+	'gemma-3-12b-it',
+	'gemma-3-4b-it',
 ] as const;
 
 function extractFirstJsonObject(text: string): string {
@@ -48,7 +48,10 @@ function parseJsonPayload(text: string): WorkspaceAction {
 	return parsed;
 }
 
-export async function parseCommandWithGemini(command: string): Promise<ParseResult> {
+export async function parseCommandWithGemini(
+	command: string,
+	activeDoc: { id: string; title: string } | null = null,
+): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 
 	if (!apiKey) {
@@ -58,8 +61,16 @@ export async function parseCommandWithGemini(command: string): Promise<ParseResu
 		};
 	}
 
-	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${commandParserPrompt}\n\nUser command:\n${command}`;
+	const client = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
+
+	const contextBlock = activeDoc
+		? `\n\nActive document context — the user is currently working on:
+Title: "${activeDoc.title}"
+ID: ${activeDoc.id}
+If the command refers to editing, adding to, or modifying this document, use edit_document.`
+		: '';
+
+	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel
