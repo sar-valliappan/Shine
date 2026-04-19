@@ -139,11 +139,11 @@ function driveItemKey(item?: DriveItem | null): string {
 }
 
 function driveItemPreviewUrl(item: DriveItem): string | undefined {
-  return item.embedUrl || item.url || item.webViewLink;
+  return item.url || item.webViewLink || item.embedUrl;
 }
 
 function driveItemOpenUrl(item: DriveItem): string | undefined {
-  return item.webViewLink || item.url || item.embedUrl;
+  return item.url || item.webViewLink || item.embedUrl;
 }
 
 // ── Seed content ──────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): Do
           modified: item?.modifiedTime ? 'recently' : 'unknown',
           mimeType: item?.mimeType,
           webViewLink: item?.webViewLink,
-          url: item?.webViewLink || item?.url,
+          url: item?.url || item?.webViewLink,
           embedUrl: item?.embedUrl,
         }))
       : seedDriveContent().items;
@@ -360,7 +360,7 @@ function docFromWorkspaceResult(result: WorkspaceParseResult, input: string): Do
         : app === 'slides' ? seedSlidesContent(normalizedTitle)
         : seedFormContent(normalizedTitle),
       url: result?.url,
-      previewUrl: result?.embedUrl || googlePreviewUrl(app, result?.url),
+      previewUrl: googlePreviewUrl(app, result?.url) || result?.embedUrl,
     };
   }
 

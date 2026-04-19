@@ -66,6 +66,15 @@ function toWorkspaceFileType(kind: DriveLookupHint['kind']): 'doc' | 'sheet' | '
 	return 'list';
 }
 
+function buildLiveWorkspaceUrl(kind: DriveLookupHint['kind'], fileId?: string | null): string | undefined {
+	if (!fileId) return undefined;
+	if (kind === 'doc') return `https://docs.google.com/document/d/${encodeURIComponent(fileId)}/edit`;
+	if (kind === 'sheet') return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(fileId)}/edit`;
+	if (kind === 'slides') return `https://docs.google.com/presentation/d/${encodeURIComponent(fileId)}/edit`;
+	if (kind === 'form') return `https://docs.google.com/forms/d/${encodeURIComponent(fileId)}/edit`;
+	return undefined;
+}
+
 export async function lookupDriveFilesByName(
 	command: string,
 	oauthClient: unknown,
@@ -123,10 +132,11 @@ export async function lookupDriveFilesByName(
 
 	const topItem = items[0];
 	if (topItem && lookup.intent === 'open' && lookup.kind !== 'drive') {
+		const liveUrl = buildLiveWorkspaceUrl(lookup.kind, topItem.id);
 		return {
 			action: lookup.kind === 'doc' ? 'open_document' : lookup.kind === 'sheet' ? 'open_spreadsheet' : lookup.kind === 'slides' ? 'open_presentation' : 'open_form',
 			title: topItem.name ?? lookup.query,
-			url: topItem.webViewLink ?? topItem.embedUrl,
+			url: liveUrl ?? topItem.webViewLink ?? topItem.embedUrl,
 			embedUrl: topItem.embedUrl,
 			fileType: toWorkspaceFileType(lookup.kind),
 			summary: `Opened ${topItem.name ?? lookup.query}`,
