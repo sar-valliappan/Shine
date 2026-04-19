@@ -29,27 +29,6 @@ function applyClientWorkspaceHints(
 		activeSpreadsheetTitle?: string;
 		activePresentationId?: string;
 		activePresentationTitle?: string;
-	},
-): void {
-	const prev = getActiveWorkspace(sessionId);
-
-const DRIVE_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
-
-/**
- * Syncs the in-memory workspace with whatever file the UI has open.
- * Critical for cross-origin setups (e.g. Vite :5173 → API :3001) where the
- * express-session cookie may differ per request, so server-side workspace state
- * set during 'create' may not be visible on the next 'edit' request.
- */
-function applyClientWorkspaceHints(
-	sessionId: string,
-	body: {
-		activeDocumentId?: string;
-		activeDocumentTitle?: string;
-		activeSpreadsheetId?: string;
-		activeSpreadsheetTitle?: string;
-		activePresentationId?: string;
-		activePresentationTitle?: string;
 		activeFormId?: string;
 		activeFormTitle?: string;
 	},

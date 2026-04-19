@@ -70,6 +70,16 @@ const DEFAULT_MODEL_CANDIDATES = [
 	'gemma-3-4b-it',
 ] as const;
 
+const EMPTY_ACTIVE_WORKSPACE: ActiveWorkspace = {
+	document: null,
+	spreadsheet: null,
+	presentation: null,
+	form: null,
+	gmailDraft: null,
+	calendarEvent: null,
+	activeApp: null,
+};
+
 function extractFirstJsonObject(text: string): string {
 	const start = text.indexOf('{');
 	if (start === -1) throw new Error('No JSON object found in response');
@@ -163,7 +173,7 @@ async function generateParsedActionFromPrompt(fullPrompt: string): Promise<Parse
 
 export async function parseCommandWithGemini(
 	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null },
+	active: ActiveWorkspace = EMPTY_ACTIVE_WORKSPACE,
 ): Promise<ParseResult> {
 	const contextBlock = formatActiveWorkspaceContext(active);
 	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
@@ -208,10 +218,7 @@ export async function parseDocsCommandWithContext(
 	}
 }
 
-export async function parseFormsCommand(
-	command: string,
-	active: ActiveWorkspace,
-): Promise<ParseResult> {
+export async function parseFormsCommand(command: string, active: ActiveWorkspace): Promise<ParseResult> {
 	const activeFormContext = active.form
 		? `Active form — title: "${active.form.title}", file id: ${active.form.id}`
 		: '';
@@ -221,7 +228,7 @@ export async function parseFormsCommand(
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null }): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = EMPTY_ACTIVE_WORKSPACE): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 
