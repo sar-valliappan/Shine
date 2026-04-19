@@ -4,6 +4,13 @@ export type FormQuestion = {
 	options?: string[];
 };
 
+export type EditDocumentOperation =
+	| 'add_section'
+	| 'append'
+	| 'replace_text'
+	| 'delete_text'
+	| 'insert_table';
+
 export type WorkspaceAction =
 	| { action: 'create_document'; title: string; content_prompt: string; sections?: string[] }
 	| {
@@ -31,9 +38,35 @@ export type WorkspaceAction =
 	| {
 			action: 'edit_document';
 			fileId?: string;
-			operation: 'add_section' | 'append';
+			operation: EditDocumentOperation;
 			heading?: string;
-			content_prompt: string;
+			/** Markdown or plain content for append / add_section */
+			content_prompt?: string;
+			/** For replace_text / delete_text */
+			find_text?: string;
+			replace_with?: string;
+			match_case?: boolean;
+			/** For insert_table */
+			table_rows?: number;
+			table_columns?: number;
+			table_headers?: string[];
+			table_data?: string[][];
+		}
+	| {
+			action: 'edit_presentation';
+			fileId?: string;
+			operation: 'add_slide' | 'edit_slide' | 'delete_slide';
+			slide_prompt?: string;
+			slide_index?: number;
+			title?: string;
+			body?: string;
+		}
+	| {
+			action: 'edit_spreadsheet';
+			fileId?: string;
+			operation: 'add_row' | 'add_column';
+			row?: Array<string | number | boolean>;
+			header?: string;
 		};
 
 export type ParseResult = {

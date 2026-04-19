@@ -78,17 +78,45 @@ AVAILABLE ACTIONS
      - query (required): what to search for
 
 10. edit_document
-    Use when: user wants to add to or modify an existing document (requires active doc context)
-    Trigger phrases: "add a section", "append", "add to the doc", "update the document", "add more"
+    Use when: user wants to change the active Google Doc (headings, bullets, new paragraphs, find/replace, delete text, or tables)
+    Trigger phrases: "add a section", "append", "replace X with Y", "remove the phrase", "delete the word", "insert a table", "add a 4x3 table"
     Fields:
-      - operation (required): "add_section" or "append"
-      - heading (optional): section heading to add
-      - content_prompt (required): what content to add
+      - operation (required): one of:
+          - "append" | "add_section" — append AI-written markdown content (default when user asks to add or expand writing)
+              → content_prompt (required), heading (optional)
+          - "replace_text" — Docs find/replace
+              → find_text (required), replace_with (string, use "" to clear), match_case (optional boolean)
+          - "delete_text" — remove every occurrence of a substring
+              → find_text (required), match_case (optional boolean)
+          - "insert_table" — insert a table at the end of the document
+              → table_rows (optional, default 3), table_columns (optional, default 3)
+              → table_headers (optional string[]) for the first row
+              → table_data (optional array of string arrays) for additional rows
+    Notes: For replace/delete, copy find_text exactly as the user describes the phrase to match (short literal substring).
 
-11. clarify
+11. edit_spreadsheet
+    Use when: user wants to modify the active Google Sheet (row/column operations)
+    Trigger phrases: "add a row", "append row", "new column"
+    Fields:
+      - operation (required): "add_row" | "add_column"
+      - row (optional array of values) for add_row — infer cells from the command
+      - header (optional) column title for add_column
+
+12. edit_presentation
+    Use when: user wants to change the active Google Slides deck
+    Trigger phrases: "add a slide", "delete slide 2", "update slide 1 title"
+    Fields:
+      - operation (required): "add_slide" | "edit_slide" | "delete_slide"
+      - slide_prompt (optional) for add_slide — what the new slide should cover
+      - slide_index (optional, 0-based) for edit_slide / delete_slide — default 0 if not specified
+      - title, body (optional) for edit_slide — new title or body text
+
+13. clarify
     Use when: you genuinely cannot determine the intent or a required field is missing and cannot be inferred
     Fields:
       - question (required): one specific question to resolve the ambiguity
+
+When multiple workspace files are active, choose edit_document / edit_spreadsheet / edit_presentation based on whether the user clearly means the doc, the sheet, or the slides.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REASONING RULES
