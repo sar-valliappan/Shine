@@ -114,10 +114,12 @@ Example: to target row 1 only, use startRow: 1, endRow: 2. To target column 2 on
   "shiftDimension": "ROWS" }
   → Deletes cells and shifts remaining cells up or left.
 
-{ "op": "mergeCells", "sheetId": 0,
+{ "op": "mergeCells", "sheetId": <actual sheetId from Tabs>,
   "startRow": 0, "endRow": 1, "startColumn": 0, "endColumn": 3,
   "mergeType": "MERGE_ALL" }
   → Merges cells. mergeType: "MERGE_ALL" | "MERGE_COLUMNS" | "MERGE_ROWS".
+  → The range MUST span at least 2 cells: endColumn - startColumn >= 2 OR endRow - startRow >= 2.
+  → Always use the real sheetId from the Tabs context — never hardcode 0.
 
 { "op": "unmergeCells", "sheetId": 0,
   "startRow": 0, "endRow": 1, "startColumn": 0, "endColumn": 3 }
@@ -232,6 +234,9 @@ RULES
 - When appending a new data row, match the number of values exactly to the number of columns in the sheet.
 - When placing a formula "below" a row, insert a new row first with insertDimension, then write the formula with updateCells at the correct row index. Never overwrite an existing row that contains data.
 - For formulas, always use A1 notation (e.g. =SUM(B2:M2)) and verify the referenced range matches what the context shows. If a row is at 0-based index N, its A1 row number is N+1.
+- CRITICAL — no circular references: a formula cell must NEVER be inside its own referenced range. If data rows are in A1 rows 2–5 and you place a SUM in row 6, write =SUM(B2:B5) — the formula row (6) is excluded. Never write =SUM(B2:B6) if the formula is in B6. Always end the SUM range at the last data row, not the formula row.
+- When updating a single row for a named person/student/employee, use updateCells targeting ONLY that one row at its exact 0-based index from the context. NEVER send multiple rows or reconstruct the full dataset.
+- CRITICAL: Never assume sheetId is 0. Always use the actual sheetId integer from the Tabs context.
 - Undo and redo are not supported by the Sheets API. If the user asks to undo/redo/revert, return { "intent": "edit", "operations": [] }.
 
 ${MINIMAL_EDIT_GUIDANCE}
