@@ -1,11 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
+import type { ActiveFile } from './sessionContext.js';
 
 const DEFAULT_MODEL_CANDIDATES = [
+	'gemini-2.5-flash-lite',
 	'gemini-2.0-flash',
-	'gemini-1.5-flash-latest',
-	'gemini-1.5-pro-latest',
+	'gemini-1.5-flash',
 ] as const;
 
 function extractFirstJsonObject(text: string): string {
@@ -83,10 +84,35 @@ function parseTitleAfterKeyword(command: string, keyword: RegExp): string | null
 	return value.length > 1 ? value : null;
 }
 
+function inferDocumentTitle(command: string): string | null {
+	// "a SWOT analysis of/about Google" → "SWOT Analysis of Google"
+	const analysisMatch = command.match(
+		/\b(swot|market|competitive|financial|performance|risk|gap|cost[- ]benefit)\s+(analysis|report|study|overview|assessment)\s+(?:of|about|for|on)\s+(.+?)(?:\s+for\s+|\s+with\s+|$)/i,
+	);
+	if (analysisMatch) {
+		const type = analysisMatch[1].toUpperCase();
+		const kind = analysisMatch[2].charAt(0).toUpperCase() + analysisMatch[2].slice(1).toLowerCase();
+		const subject = analysisMatch[3].trim().replace(/\b\w/g, (c) => c.toUpperCase());
+		return `${type} ${kind} of ${subject}`;
+	}
+	// generic "analysis/report/essay/plan about/of X"
+	const genericMatch = command.match(
+		/\b(analysis|report|essay|summary|plan|proposal|overview|guide|document)\s+(?:of|about|for|on)\s+(.+?)(?:\s+for\s+|\s+with\s+|$)/i,
+	);
+	if (genericMatch) {
+		const kind = genericMatch[1].charAt(0).toUpperCase() + genericMatch[1].slice(1).toLowerCase();
+		const subject = genericMatch[2].trim().replace(/\b\w/g, (c) => c.toUpperCase());
+		return `${kind} of ${subject}`;
+	}
+	return null;
+}
+
 function inferTitle(command: string, fallbackPrefix: string): string {
 	return (
 		parseQuotedTitle(command) ??
 		parseTitleAfterKeyword(command, /(?:called|named|titled)\s+(.+)$/i) ??
+		inferDocumentTitle(command) ??
+		parseTitleAfterKeyword(command, /(?:about|on|for|regarding)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+for\s+|\s+with\s+|$)/i) ??
 		`${fallbackPrefix} ${new Date().toISOString().slice(0, 10)}`
 	);
 }
@@ -135,7 +161,7 @@ function fallbackAction(command: string): WorkspaceAction {
 	const lower = command.toLowerCase();
 	const normalized = command.trim();
 
-	if (/(create|make|write|draft)\b/.test(lower) && /(doc|document|google doc)\b/.test(lower)) {
+	if (/(create|make|write|draft|give me|show me|generate|produce|build me|write me|make me)\b/.test(lower) && /(doc|document|google doc|analysis|report|essay|summary|plan|proposal|overview)\b/.test(lower)) {
 		const title = inferTitle(normalized, 'Untitled Document');
 		return {
 			action: 'create_document',
@@ -242,14 +268,28 @@ function fallbackAction(command: string): WorkspaceAction {
 	};
 }
 
-export async function parseCommandWithGemini(command: string): Promise<ParseResult> {
+export async function parseCommandWithGemini(
+	command: string,
+	context?: { activeFile?: ActiveFile | null },
+): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) {
 		return { action: fallbackAction(command), rawText: 'GEMINI_API_KEY not configured' };
 	}
 
 	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${commandParserPrompt}\n\nUser command:\n${command}`;
+
+	let contextBlock = '';
+	if (context?.activeFile) {
+		const f = context.activeFile;
+		contextBlock = `\n\nActive file context — the user is currently working on:
+Type: ${f.type}
+Title: "${f.title}"
+ID: ${f.id}
+If the command refers to editing, modifying, or adding to this file, use the matching edit action (edit_presentation, edit_document, or edit_spreadsheet).`;
+	}
+
+	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel

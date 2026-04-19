@@ -1,116 +1,117 @@
 import { Router, Request, Response } from 'express';
-import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import {
+  createStyledPresentation,
+  addSlide,
+  editSlide,
+  deleteSlide,
+} from '../services/slidesService.js';
 
 const router = Router();
 
-interface CreateSlidesRequest {
-  title?: string;
-  slide_prompts?: string[];
-}
-
-/**
- * POST /api/slides/create
- * Creates a Google Slides presentation with provided slide outlines
- */
 router.post('/create', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { title, slide_prompts } = req.body as CreateSlidesRequest;
+    const { title, slide_prompts } = req.body as {
+      title?: string;
+      slide_prompts?: string[];
+    };
 
-    // Validate input
-    if (!title || typeof title !== 'string' || !title.trim()) {
-      return res.status(400).json({ error: 'Missing or invalid title' });
+    if (!title?.trim()) {
+      return res.status(400).json({ error: 'title is required' });
     }
-
     if (!Array.isArray(slide_prompts) || slide_prompts.length === 0) {
       return res.status(400).json({ error: 'slide_prompts must be a non-empty array' });
     }
 
-    // Create Google Slides API client
-    const slides = google.slides({ version: 'v1', auth: req.oauthClient });
-    const drive = google.drive({ version: 'v3', auth: req.oauthClient });
+    const { presentationId, url, slideCount } = await createStyledPresentation(
+      title.trim(),
+      slide_prompts,
+      req.oauthClient,
+      process.env.GEMINI_API_KEY,
+    );
 
-    // Create a new presentation
-    const createResponse = await slides.presentations.create({
-      requestBody: {
-        title: title.trim(),
-      },
-    });
-
-    const presentationId = createResponse.data.presentationId;
-
-    if (!presentationId) {
-      return res.status(500).json({ error: 'Failed to create presentation' });
-    }
-
-    // Build requests to add slides with text
-    const requests: any[] = [];
-
-    // Add slides for each prompt (starting after the blank first slide)
-    for (let i = 0; i < slide_prompts.length; i++) {
-      const slideIndex = i + 1;
-
-      if (i === 0) {
-        // Use the existing blank slide for the first slide
-        requests.push(
-          {
-            insertText: {
-              objectId: 'slide1_title',
-              text: slide_prompts[i],
-              insertionIndex: 0,
-            },
-          },
-          {
-            updateTextStyle: {
-              objectId: 'slide1_title',
-              style: {
-                fontSize: { magnitude: 44, unit: 'PT' },
-              },
-              fields: 'fontSize',
-            },
-          }
-        );
-      } else {
-        // Add new slides
-        requests.push({
-          createSlide: {
-            objectId: `slide${slideIndex}`,
-            insertionIndex: slideIndex,
-            slideLayout: 'TITLE_AND_BODY',
-          },
-        });
-
-        requests.push({
-          insertText: {
-            objectId: `slide${slideIndex}_title`,
-            text: slide_prompts[i],
-            insertionIndex: 0,
-          },
-        });
-      }
-    }
-
-    // Apply all requests
-    if (requests.length > 0) {
-      await slides.presentations.batchUpdate({
-        presentationId,
-        requestBody: { requests },
-      });
-    }
-
-    const url = `https://docs.google.com/presentation/d/${presentationId}/edit`;
-
-    res.json({
+    return res.json({
       action: 'create_presentation',
       title: title.trim(),
       url,
       fileType: 'slides',
-      summary: `Created Google Slides presentation: ${title.trim()} with ${slide_prompts.length} slides`,
+      presentationId,
+      summary: `Created "${title.trim()}" — ${slideCount} slides`,
     });
   } catch (error) {
-    console.error('Error creating Google Slides presentation:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create presentation';
-    res.status(500).json({ error: message });
+    console.error('slides/create error:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to create presentation',
+    });
+  }
+});
+
+router.post('/edit', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { presentationId, operation, slide_prompt, slide_index, title, body } = req.body as {
+      presentationId?: string;
+      operation?: string;
+      slide_prompt?: string;
+      slide_index?: number;
+      title?: string;
+      body?: string;
+    };
+
+    if (!presentationId) {
+      return res.status(400).json({ error: 'presentationId is required' });
+    }
+
+    const url = `https://docs.google.com/presentation/d/${presentationId}/edit`;
+
+    if (operation === 'add_slide') {
+      const { title: newTitle } = await addSlide(
+        presentationId,
+        slide_prompt ?? 'New slide',
+        req.oauthClient,
+        process.env.GEMINI_API_KEY,
+      );
+      return res.json({
+        action: 'edit_presentation',
+        operation: 'add_slide',
+        title: newTitle,
+        url,
+        fileType: 'slides',
+        summary: `Added slide: "${newTitle}"`,
+      });
+    }
+
+    if (operation === 'edit_slide') {
+      const idx = typeof slide_index === 'number' ? slide_index : 0;
+      await editSlide(presentationId, idx, { title, body }, req.oauthClient);
+      return res.json({
+        action: 'edit_presentation',
+        operation: 'edit_slide',
+        title: title ?? `Slide ${idx + 1}`,
+        url,
+        fileType: 'slides',
+        summary: `Updated slide ${idx + 1}`,
+      });
+    }
+
+    if (operation === 'delete_slide') {
+      const idx = typeof slide_index === 'number' ? slide_index : 0;
+      await deleteSlide(presentationId, idx, req.oauthClient);
+      return res.json({
+        action: 'edit_presentation',
+        operation: 'delete_slide',
+        title: `Slide ${idx + 1} deleted`,
+        url,
+        fileType: 'slides',
+        summary: `Deleted slide ${idx + 1}`,
+      });
+    }
+
+    return res.status(400).json({ error: `Unknown operation: ${operation}` });
+  } catch (error) {
+    console.error('slides/edit error:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to edit presentation',
+    });
   }
 });
 
