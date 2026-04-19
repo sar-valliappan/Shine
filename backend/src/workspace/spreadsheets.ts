@@ -480,7 +480,6 @@ export async function handleSheetsCommand(
 	// Build context block for Gemini
 	let activeContext = '';
 	if (active.spreadsheet) {
-		// Fetch sheet metadata so Gemini knows real tab names and IDs
 		try {
 			const meta = await sheets.spreadsheets.get({ spreadsheetId: active.spreadsheet.id });
 			const sheetList = (meta.data.sheets ?? []).map((s) => ({
@@ -488,7 +487,35 @@ export async function handleSheetsCommand(
 				title: s.properties?.title,
 				index: s.properties?.index,
 			}));
-			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})\nTabs: ${JSON.stringify(sheetList)}\nUse the sheetId values above when targeting a specific tab.`;
+
+			// Fetch actual cell data so Gemini knows headers, column positions, and row count
+			let dataContext = '';
+			try {
+				const firstSheetTitle = sheetList[0]?.title ?? 'Sheet1';
+				const dataRes = await sheets.spreadsheets.values.get({
+					spreadsheetId: active.spreadsheet.id,
+					range: `${firstSheetTitle}!A1:Z100`,
+				});
+				const rows = dataRes.data.values ?? [];
+				if (rows.length > 0) {
+					const headerRow = rows[0];
+					const dataRows = rows.slice(1);
+					const colCount = headerRow.length;
+					const lines = [
+						`\nSheet "${firstSheetTitle}" has ${colCount} columns and ${dataRows.length} data row(s).`,
+						`Headers (row 0): ${JSON.stringify(headerRow)}`,
+						`Column indexes: ${headerRow.map((h: string, i: number) => `${i}="${h}"`).join(', ')}`,
+					];
+					// Include up to 10 data rows so Gemini can see existing values
+					dataRows.slice(0, 10).forEach((row, i) => {
+						lines.push(`Row ${i + 1}: ${JSON.stringify(row)}`);
+					});
+					if (dataRows.length > 10) lines.push(`... (${dataRows.length - 10} more rows)`);
+					dataContext = '\n' + lines.join('\n');
+				}
+			} catch { /* best-effort — proceed without row data */ }
+
+			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})\nTabs: ${JSON.stringify(sheetList)}\nUse the sheetId values above when targeting a specific tab.${dataContext}`;
 		} catch {
 			activeContext = `\n\nActive spreadsheet — "${active.spreadsheet.title}" (id: ${active.spreadsheet.id})`;
 		}

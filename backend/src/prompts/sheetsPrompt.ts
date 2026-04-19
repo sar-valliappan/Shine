@@ -206,6 +206,9 @@ RULES
 - Row/column indexes are 0-based. Row 0 = first row (usually the header).
 - If the command is ambiguous between create and edit and a spreadsheet is currently open, prefer edit.
 - Never return operations that would destroy data unless the user explicitly asked to delete.
+- When the active spreadsheet context lists headers and column indexes, use those EXACT column indexes — never guess.
+- When appending a new data row, match the number of values exactly to the number of columns in the sheet.
+- Undo and redo are not supported by the Sheets API. If the user asks to undo/redo/revert, return { "intent": "edit", "operations": [] }.
 `;
 
 export function buildSheetsPrompt(
