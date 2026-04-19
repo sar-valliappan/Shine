@@ -2,7 +2,6 @@ import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
 import { generateEditedEmailBody, generateEmailBody } from '../prompts/gmailMessageGenerator.js';
 import { executeDocumentAction } from './documents.js';
-import { executePresentationAction } from './presentations.js';
 import { executeCalendarAction } from './calendar.js';
 import type { ParseRouteResult } from './types.js';
 import { parseRawEmailMessage } from './gmailDraft.js';

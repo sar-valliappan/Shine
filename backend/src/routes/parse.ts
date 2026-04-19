@@ -9,7 +9,6 @@ import {
 	loadGmailDraftContext,
 	getActiveWorkspace,
 	updateActiveWorkspace,
-	type AppName,
 } from '../workspace/index.js';
 
 const router = Router();
@@ -31,6 +30,8 @@ function applyClientWorkspaceHints(
 		activeSpreadsheetTitle?: string;
 		activePresentationId?: string;
 		activePresentationTitle?: string;
+		activeFormId?: string;
+		activeFormTitle?: string;
 	},
 ): void {
 	const prev = getActiveWorkspace(sessionId);
@@ -75,13 +76,28 @@ function applyClientWorkspaceHints(
 			updateActiveWorkspace(sessionId, { presentation: null });
 		}
 	}
+
+	if (typeof body.activeFormId === 'string') {
+		const formId = body.activeFormId.trim();
+		if (formId && DRIVE_FILE_ID_RE.test(formId)) {
+			const title =
+				typeof body.activeFormTitle === 'string' && body.activeFormTitle.trim()
+					? body.activeFormTitle.trim()
+					: prev.form?.id === formId ? prev.form.title : 'Untitled';
+			updateActiveWorkspace(sessionId, { form: { id: formId, title } });
+		} else {
+			updateActiveWorkspace(sessionId, { form: null });
+		}
+	}
 }
 
-function syncActiveFileFromResult(
+async function syncActiveFileFromResult(
 	sessionId: string,
 	actionName: string,
 	url: string | undefined,
 	title: string | undefined,
+	oauthClient: unknown,
+	result: import('../workspace/types.js').ParseRouteResult,
 	activeDocumentTitle?: string,
 	documentTitleHint?: string,
 ) {
@@ -93,10 +109,10 @@ function syncActiveFileFromResult(
 
 	if (workspaceFileId && (actionName === 'create_document' || actionName === 'edit_document')) {
 		const nextTitle =
-			actionName === 'edit_document' && prev.document?.id === id
-				? (activeDocumentTitle ?? documentTitleHint ?? prev.document.title)
+			actionName === 'edit_document' && prev.document?.id === workspaceFileId
+				? (activeDocumentTitle ?? documentTitleHint ?? prev.document?.title ?? 'Untitled')
 				: (activeDocumentTitle ?? documentTitleHint ?? title ?? prev.document?.title ?? 'Untitled');
-		patch.document = { id, title: nextTitle };
+		patch.document = { id: workspaceFileId, title: nextTitle };
 	}
 	if (workspaceFileId && (actionName === 'create_spreadsheet' || actionName === 'edit_spreadsheet')) {
 		const nextTitle =
@@ -114,7 +130,7 @@ function syncActiveFileFromResult(
 		patch.presentation = { id: workspaceFileId, title: nextTitle };
 		patch.activeApp = 'slides';
 	}
-	if (workspaceFileId && actionName === 'create_form') {
+	if (workspaceFileId && (actionName === 'create_form' || actionName === 'edit_form')) {
 		patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
 		patch.activeApp = 'forms';
 	}
@@ -194,6 +210,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 			activeSpreadsheetTitle?: string;
 			activePresentationId?: string;
 			activePresentationTitle?: string;
+			activeFormId?: string;
+			activeFormTitle?: string;
 		};
 
 		const { command } = body;
@@ -211,7 +229,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		}
 
 		// Step 1: Gemini decides which app the user wants
-		const app = chooseAppFromActiveContext(command, active) ?? (await routeToApp(command.trim(), active));
+		const app = await routeToApp(command.trim(), active);
 		if (!app) {
 			return res.status(400).json({ error: "I couldn't determine which app you want to use. Try mentioning docs, sheets, slides, gmail, forms, drive, or calendar." });
 		}
@@ -220,7 +238,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const result = await executeAppCommand(app, command.trim(), req.oauthClient, active, process.env.GEMINI_API_KEY, sessionId);
 
 		if (result?.url) {
-			syncActiveFileFromResult(sessionId, result.action, result.url, result.title, result.activeDocumentTitle, result.documentTitle);
+			await syncActiveFileFromResult(sessionId, result.action, result.url, result.title, req.oauthClient, result, result.activeDocumentTitle, result.documentTitle);
 		}
 
 		return res.json(result);

@@ -16,6 +16,8 @@ export type ParseWorkspaceHints = {
   activeSpreadsheetTitle?: string;
   activePresentationId?: string;
   activePresentationTitle?: string;
+  activeFormId?: string;
+  activeFormTitle?: string;
 };
 
 async function parseJsonResponse(response: Response): Promise<any> {

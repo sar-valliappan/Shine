@@ -4,6 +4,7 @@ import { commandParserPrompt } from '../prompts/commandParser.js';
 import { appRouterPrompt } from '../prompts/appRouter.js';
 import { extractDocumentContext } from './googleDocsBodyHelpers.js';
 import { buildAppRouterPrompt } from '../prompts/appRouter.js';
+import { buildFormsPrompt } from '../prompts/formsPrompt.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
 import type { AppName } from '../workspace/app-router.js';
@@ -162,7 +163,7 @@ async function generateParsedActionFromPrompt(fullPrompt: string): Promise<Parse
 
 export async function parseCommandWithGemini(
 	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null },
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null },
 ): Promise<ParseResult> {
 	const contextBlock = formatActiveWorkspaceContext(active);
 	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
@@ -205,6 +206,17 @@ export async function parseDocsCommandWithContext(
 		console.error('[gemini] parseDocsCommandWithContext: document fetch failed, fallback:', error);
 		return parseCommandWithGemini(command, active);
 	}
+}
+
+export async function parseFormsCommand(
+	command: string,
+	active: ActiveWorkspace,
+): Promise<ParseResult> {
+	const activeFormContext = active.form
+		? `Active form — title: "${active.form.title}", file id: ${active.form.id}`
+		: '';
+	const prompt = buildFormsPrompt(command, activeFormContext);
+	return generateParsedActionFromPrompt(prompt);
 }
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];

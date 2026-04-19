@@ -1,6 +1,7 @@
 export type FormQuestion = {
 	title: string;
-	type: 'TEXT' | 'MULTIPLE_CHOICE';
+	type: 'SHORT_TEXT' | 'PARAGRAPH' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'DROPDOWN' | 'LINEAR_SCALE' | 'DATE' | 'TIME';
+	required?: boolean;
 	options?: string[];
 };
 
@@ -48,7 +49,17 @@ export type WorkspaceAction =
 			location?: string;
 			description?: string;
 		}
-	| { action: 'create_form'; title: string; questions: FormQuestion[] }
+	| { action: 'create_form'; title: string; description?: string; questions: FormQuestion[] }
+	| {
+			action: 'edit_form';
+			fileId?: string;
+			operation: 'add_question' | 'delete_question' | 'update_title' | 'update_description';
+			question?: FormQuestion;
+			question_index?: number;
+			question_title?: string;
+			new_title?: string;
+			new_description?: string;
+		}
 	| { action: 'create_draft'; to: string; subject: string; body_prompt: string }
 	| { action: 'edit_draft'; draft_id?: string; to: string; subject: string; body_prompt: string }
 	| { action: 'send_email'; to: string; subject: string; body_prompt: string }

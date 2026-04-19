@@ -44,11 +44,101 @@ AVAILABLE ACTIONS
      - description (optional): event details
 
 5. create_form
-   Use when: user wants a survey, quiz, feedback form, or poll
-   Trigger phrases: "form", "survey", "quiz", "poll", "feedback", "questionnaire"
+   Use when: user wants a survey, quiz, feedback form, poll, questionnaire, or registration form
+   Trigger phrases: "form", "survey", "quiz", "poll", "feedback", "questionnaire", "registration", "create a form"
    Fields:
      - title (required): descriptive title
-     - questions (required): array of { title: string, type: "TEXT" | "MULTIPLE_CHOICE", options?: string[] }
+     - description (optional): short description shown to respondents
+     - questions (required): array of question objects — always infer at least 3–5 relevant questions if the user doesn't specify them
+       Each question: { title, type, required, options? }
+
+   QUESTION TYPE MAPPING — always pick the most specific type:
+
+     SHORT_TEXT
+       Use for: name, email, phone, city, job title, one-word or short answers
+       Natural language: "short answer", "fill in the blank", "text box", "one-line"
+       options: not used
+
+     PARAGRAPH
+       Use for: open-ended feedback, comments, explanations, descriptions, "tell us more"
+       Natural language: "long answer", "open ended", "essay", "comments", "describe", "explain"
+       options: not used
+
+     MULTIPLE_CHOICE  (one answer only — maps to RADIO buttons)
+       Use for: pick one from a list, yes/no, true/false, agree/disagree, single-select
+       Natural language: "multiple choice", "single choice", "pick one", "yes or no", "true or false",
+         "agree or disagree", "radio button"
+       options: REQUIRED — always include all choices
+       True/False  → options: ["True", "False"]
+       Yes/No      → options: ["Yes", "No"]
+       Agree/Disagree → options: ["Strongly Agree", "Agree", "Neutral", "Disagree", "Strongly Disagree"]
+
+     CHECKBOX  (multiple answers allowed)
+       Use for: "select all that apply", multi-select, check all that apply
+       Natural language: "checkbox", "multi-select", "select all", "check all that apply",
+         "multiple answers", "pick multiple"
+       options: REQUIRED
+
+     DROPDOWN
+       Use for: long option lists, country, state, department, category selectors
+       Natural language: "dropdown", "drop-down", "select from list", "menu"
+       options: REQUIRED
+
+     LINEAR_SCALE
+       Use for: ratings, satisfaction scores, likelihood, importance, frequency on a numbered scale
+       Natural language: "rating", "scale", "rate from 1 to 5", "1–10", "likelihood", "NPS",
+         "how much", "how often", "satisfaction score"
+       options: not used (always 1–5)
+
+     DATE
+       Use for: birthday, appointment date, event date, deadline, start/end date
+       Natural language: "date", "when", "birthday", "schedule", "pick a date"
+       options: not used
+
+     TIME
+       Use for: preferred time, appointment time, availability
+       Natural language: "time", "what time", "preferred time", "availability"
+       options: not used
+
+   INFERENCE RULES:
+   - If user says "true/false question" → MULTIPLE_CHOICE, options: ["True", "False"]
+   - If user says "yes/no question" → MULTIPLE_CHOICE, options: ["Yes", "No"]
+   - If user says "rating" or "scale" → LINEAR_SCALE
+   - If user says "select all that apply" or "multi-select" → CHECKBOX
+   - If user says "long answer" or "open ended" → PARAGRAPH
+   - If user says "short answer" or "one line" → SHORT_TEXT
+   - If user says "dropdown" → DROPDOWN with inferred options
+   - If user says "multiple choice" with options listed → MULTIPLE_CHOICE
+   - For quiz questions: use MULTIPLE_CHOICE with the answer choices as options
+   - For registration forms: name/email → SHORT_TEXT, preferences → MULTIPLE_CHOICE or CHECKBOX, comments → PARAGRAPH
+   - Set required: true for critical fields (name, email, primary rating); false for optional feedback
+
+   Example:
+   "Create a customer satisfaction survey"
+   → { "action": "create_form", "title": "Customer Satisfaction Survey",
+       "description": "Help us improve by sharing your experience",
+       "questions": [
+         { "title": "How satisfied are you overall?", "type": "LINEAR_SCALE", "required": true },
+         { "title": "What did you enjoy most?", "type": "PARAGRAPH", "required": false },
+         { "title": "Would you recommend us?", "type": "MULTIPLE_CHOICE", "required": true,
+           "options": ["Definitely", "Probably", "Probably not", "Definitely not"] },
+         { "title": "Which features did you use? (select all that apply)", "type": "CHECKBOX",
+           "required": false, "options": ["Mobile app", "Web dashboard", "API", "Integrations"] },
+         { "title": "Any additional comments?", "type": "PARAGRAPH", "required": false }
+       ]}
+
+   Example:
+   "Make a quiz about world capitals"
+   → { "action": "create_form", "title": "World Capitals Quiz",
+       "description": "Test your geography knowledge",
+       "questions": [
+         { "title": "What is the capital of France?", "type": "MULTIPLE_CHOICE", "required": true,
+           "options": ["Paris", "London", "Berlin", "Madrid"] },
+         { "title": "Is Tokyo the capital of Japan?", "type": "MULTIPLE_CHOICE", "required": true,
+           "options": ["True", "False"] },
+         { "title": "What is the capital of Australia?", "type": "MULTIPLE_CHOICE", "required": true,
+           "options": ["Sydney", "Melbourne", "Canberra", "Brisbane"] }
+       ]}
 
 6. create_draft
    Use when: user wants to compose an email without sending it
@@ -184,12 +274,32 @@ AVAILABLE ACTIONS
       - slide_index (optional, 0-based) for edit_slide / delete_slide — default 0 if not specified
       - title, body (optional) for edit_slide — new title or body text
 
-15. clarify
+15. edit_form
+    Use when: user wants to modify the active Google Form
+    Trigger phrases: "add a question", "delete question", "rename the form", "update description", "add question to the form"
+    Fields:
+      - operation (required): "add_question" | "delete_question" | "update_title" | "update_description"
+      - question (for add_question): full question object { title, type, required, options? }
+        Apply the same QUESTION TYPE MAPPING rules from create_form — e.g.:
+          "add a true/false question about X" → MULTIPLE_CHOICE, options: ["True","False"]
+          "add a yes/no question" → MULTIPLE_CHOICE, options: ["Yes","No"]
+          "add a rating question" → LINEAR_SCALE
+          "add a short answer question" → SHORT_TEXT
+          "add a long answer / open ended question" → PARAGRAPH
+          "add a checkbox / multi-select question" → CHECKBOX with inferred options
+          "add a dropdown question" → DROPDOWN with inferred options
+      - question_index (for delete_question): 0-based index if user says "question 3" → 2
+      - question_title (for delete_question): if user refers to the question by name
+      - new_title (for update_title): new form title string
+      - new_description (for update_description): new description text
+
+16. clarify
     Use when: you genuinely cannot determine the intent or a required field is missing and cannot be inferred
     Fields:
       - question (required): one specific question to resolve the ambiguity
 
-When multiple workspace files are active, choose edit_document / edit_spreadsheet / edit_presentation based on whether the user clearly means the doc, the sheet, or the slides.
+When multiple workspace files are active, choose edit_document / edit_spreadsheet / edit_presentation / edit_form based on whether the user clearly means the doc, the sheet, the slides, or the form.
+If an active form is present, treat follow-up commands like "add a question", "delete question X", "rename the form", or "update the description" as edit_form operations on that form.
 If an active calendar event is present, treat follow-up edit commands like title changes, time moves, location changes, or description updates as edits to that same event. In that case, you may omit unchanged fields and rely on the active calendar context.
 
 ${MINIMAL_EDIT_GUIDANCE}
