@@ -26,6 +26,8 @@ Guidance:
 - For "open the spreadsheet called X", return kind "sheet" and query "X".
 - For "open the slideshow called X", return kind "slides" and query "X".
 - For "open X in Drive", return intent "open" and query "X".
+- For commands like "open q2 budget spreadsheet", treat this as opening an existing file: { "intent": "open", "query": "q2 budget", "kind": "sheet" }.
+- Strip generic file-type words from query when they are just descriptors (doc, document, spreadsheet, sheet, slides, presentation, form) so the query focuses on the file name/topic.
 - Do not include markdown, explanation text, or code fences.
 
 Examples:

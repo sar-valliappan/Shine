@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { routeToApp } from '../services/gemini.js';
-import { lookupDriveFilesByName } from '../workspace/drive.js';
 import {
 	executeAppCommand,
 	extractFileIdFromWorkspaceUrl,
@@ -13,47 +12,6 @@ import {
 } from '../workspace/index.js';
 
 const router = Router();
-
-function chooseAppFromActiveContext(command: string, active: ReturnType<typeof getActiveWorkspace>): AppName | null {
-	const text = command.trim().toLowerCase();
-	const isCreateIntent = /\b(create|new|start|generate|draft|compose|write|build|make)\b/.test(text);
-	if (isCreateIntent) return null;
-
-	const looksLikeEdit = /\b(edit|update|rewrite|change|revise|improve|polish|fix|add|remove|append|replace|delete|shorten|expand|reword|summarize|simplify|share|invite|collaborate)\b/.test(text);
-	if (!looksLikeEdit) return null;
-
-	const explicitAppMention = /\b(gmail|email|mail|draft|doc|document|sheet|spreadsheet|slide|slides|presentation|calendar|form|drive|file)\b/.test(text);
-	if (explicitAppMention) return null;
-
-	if (active.activeApp === 'gmail' && active.gmailDraft) return 'gmail';
-	if (active.activeApp === 'calendar' && active.calendarEvent) return 'calendar';
-	if (active.activeApp === 'docs' && active.document) return 'docs';
-	if (active.activeApp === 'sheets' && active.spreadsheet) return 'sheets';
-	if (active.activeApp === 'slides' && active.presentation) return 'slides';
-
-	// Prefer the currently active Gmail draft for ambiguous edit requests.
-	if (active.gmailDraft) {
-		return 'gmail';
-	}
-	if (active.calendarEvent) {
-		return 'calendar';
-	}
-
-	if (active.document) {
-		return 'docs';
-	}
-	if (active.spreadsheet) {
-		return 'sheets';
-	}
-	if (active.presentation) {
-		return 'slides';
-	}
-	if (active.form) {
-		return 'forms';
-	}
-
-	return null;
-}
 
 async function syncActiveFileFromResult(
 	sessionId: string,
@@ -180,13 +138,9 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
 		const sessionId = (req.session as any).id;
 		const active = getActiveWorkspace(sessionId);
-		const explicitDriveLookup = await lookupDriveFilesByName(command.trim(), req.oauthClient, process.env.GEMINI_API_KEY);
-		if (explicitDriveLookup) {
-			return res.json(explicitDriveLookup);
-		}
 
 		// Step 1: Gemini decides which app the user wants
-		const app = chooseAppFromActiveContext(command, active) ?? (await routeToApp(command.trim(), active));
+		const app = await routeToApp(command.trim(), active);
 		if (!app) {
 			return res.status(400).json({ error: "I couldn't determine which app you want to use. Try mentioning docs, sheets, slides, gmail, forms, drive, or calendar." });
 		}
