@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
-import { appRouterPrompt } from '../prompts/appRouter.js';
+import { buildAppRouterPrompt } from '../prompts/appRouter.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
 import type { AppName } from '../workspace/app-router.js';
@@ -149,12 +149,13 @@ export async function parseCommandWithGemini(
 
 const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
 
-export async function routeToApp(command: string): Promise<AppName | null> {
+export async function routeToApp(command: string, active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, gmailDraft: null }): Promise<AppName | null> {
 	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) return null;
 
 	const client = new GoogleGenerativeAI(apiKey);
-	const prompt = `${appRouterPrompt}${command}`;
+	const activeContext = formatActiveWorkspaceContext(active);
+	const prompt = buildAppRouterPrompt(command, activeContext);
 
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel

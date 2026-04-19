@@ -1,3 +1,5 @@
+import { MINIMAL_EDIT_GUIDANCE } from './editingGuidance.js';
+
 export const commandParserPrompt = `You are a natural language processor for a Google Workspace assistant called Shine.
 Your job is to read a user's command in plain English and return a single structured JSON action.
 
@@ -126,6 +128,8 @@ AVAILABLE ACTIONS
       - question (required): one specific question to resolve the ambiguity
 
 When multiple workspace files are active, choose edit_document / edit_spreadsheet / edit_presentation based on whether the user clearly means the doc, the sheet, or the slides.
+
+${MINIMAL_EDIT_GUIDANCE}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REASONING RULES
