@@ -29,27 +29,11 @@ export type WorkspaceAction =
 	| { action: 'search_drive'; query: string }
 	| { action: 'clarify'; question: string }
 	| {
-			action: 'edit_presentation';
-			operation: 'add_slide' | 'edit_slide' | 'delete_slide';
-			fileId?: string;
-			slide_prompt?: string;
-			slide_index?: number;
-			title?: string;
-			body?: string;
-		}
-	| {
 			action: 'edit_document';
-			operation: 'add_section';
 			fileId?: string;
-			heading: string;
+			operation: 'add_section' | 'append';
+			heading?: string;
 			content_prompt: string;
-		}
-	| {
-			action: 'edit_spreadsheet';
-			operation: 'add_row' | 'add_column';
-			fileId?: string;
-			row?: string[];
-			header?: string;
 		};
 
 export type ParseResult = {

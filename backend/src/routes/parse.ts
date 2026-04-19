@@ -2,17 +2,17 @@ import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
-import { createStyledPresentation, addSlide, editSlide, deleteSlide } from '../services/slidesService.js';
 import { generateDocumentContent, buildDocRequests } from '../services/docsService.js';
-import { getActiveFile, setActiveFile, addToHistory } from '../services/sessionContext.js';
 import type { WorkspaceAction } from '../types/actions.js';
 
-const router = Router();
+// In-memory session store: tracks the last document the user worked on
+const activeDocStore = new Map<string, { id: string; title: string }>();
 
 function extractFileId(url: string): string | null {
-	const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-	return match?.[1] ?? null;
+	return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? null;
 }
+
+const router = Router();
 
 async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: string | undefined) {
 	switch (action.action) {
@@ -230,6 +230,54 @@ async function executeAction(action: WorkspaceAction, oauthClient: any, apiKey: 
 			};
 		}
 
+		case 'edit_document': {
+			const fileId = action.fileId;
+			if (!fileId) throw new Error('No active document to edit. Create one first.');
+
+			const docs = google.docs({ version: 'v1', auth: oauthClient });
+			const contentPrompt = action.content_prompt?.trim();
+			if (!contentPrompt) throw new Error('edit_document requires content_prompt');
+
+			const heading = action.heading?.trim();
+			const generated = apiKey
+				? await generateDocumentContent(heading ?? 'New Section', contentPrompt, apiKey)
+				: `## ${heading ?? 'New Section'}\n\n${contentPrompt}`;
+
+			const requests = buildDocRequests(generated);
+			if (requests.length > 0) {
+				// Shift all insert positions to end of document
+				const doc = await docs.documents.get({ documentId: fileId });
+				const endIndex = (doc.data.body?.content?.at(-1)?.endIndex ?? 2) - 1;
+				const shifted = requests.map((r: any) => {
+					if (r.insertText?.location?.index !== undefined) {
+						return { ...r, insertText: { ...r.insertText, location: { index: endIndex } } };
+					}
+					if (r.updateParagraphStyle?.range) {
+						const offset = endIndex - 1;
+						return { ...r, updateParagraphStyle: { ...r.updateParagraphStyle, range: { startIndex: r.updateParagraphStyle.range.startIndex + offset, endIndex: r.updateParagraphStyle.range.endIndex + offset } } };
+					}
+					if (r.updateTextStyle?.range) {
+						const offset = endIndex - 1;
+						return { ...r, updateTextStyle: { ...r.updateTextStyle, range: { startIndex: r.updateTextStyle.range.startIndex + offset, endIndex: r.updateTextStyle.range.endIndex + offset } } };
+					}
+					if (r.createParagraphBullets?.range) {
+						const offset = endIndex - 1;
+						return { ...r, createParagraphBullets: { ...r.createParagraphBullets, range: { startIndex: r.createParagraphBullets.range.startIndex + offset, endIndex: r.createParagraphBullets.range.endIndex + offset } } };
+					}
+					return r;
+				});
+				await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: shifted } });
+			}
+
+			return {
+				action: 'edit_document',
+				title: heading ?? 'Section added',
+				url: `https://docs.google.com/document/d/${fileId}/edit`,
+				fileType: 'doc',
+				summary: `Added section "${heading ?? 'new content'}" to document`,
+			};
+		}
+
 		case 'clarify':
 			return {
 				action: 'clarify',
@@ -330,42 +378,23 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		}
 
 		const sessionId = (req.session as any).id;
-		const activeFile = getActiveFile(sessionId);
+		const activeDoc = activeDocStore.get(sessionId);
 
-		const parsed = await parseCommandWithGemini(command.trim(), { activeFile });
-		console.log('[parse] action:', parsed.action.action, '| raw:', parsed.rawText?.slice(0, 200));
-		const action = parsed.action;
+		const parsed = await parseCommandWithGemini(command.trim(), activeDoc ?? null);
 
 		// Inject fileId from session for edit actions
-		if (
-			(action.action === 'edit_presentation' ||
-				action.action === 'edit_document' ||
-				action.action === 'edit_spreadsheet') &&
-			!action.fileId
-		) {
-			if (!activeFile) {
-				return res.status(400).json({ error: 'No active file to edit. Create a file first.' });
-			}
-			(action as any).fileId = activeFile.id;
+		if (parsed.action.action === 'edit_document' && !parsed.action.fileId) {
+			if (!activeDoc) return res.status(400).json({ error: 'No active document. Create a document first.' });
+			(parsed.action as any).fileId = activeDoc.id;
 		}
 
-		const result = await executeAction(action, req.oauthClient, process.env.GEMINI_API_KEY);
+		const result = await executeAction(parsed.action, req.oauthClient, process.env.GEMINI_API_KEY);
 
-		// Track active file after creation
-		if (result && 'url' in result && result.url) {
-			const fileId = extractFileId(result.url);
-			if (fileId) {
-				if (action.action === 'create_presentation') {
-					setActiveFile(sessionId, { id: fileId, type: 'presentation', title: result.title ?? '' });
-				} else if (action.action === 'create_document') {
-					setActiveFile(sessionId, { id: fileId, type: 'document', title: result.title ?? '' });
-				} else if (action.action === 'create_spreadsheet') {
-					setActiveFile(sessionId, { id: fileId, type: 'spreadsheet', title: result.title ?? '' });
-				}
-			}
+		// Track the doc after creation
+		if (result && 'url' in result && result.url && parsed.action.action === 'create_document') {
+			const fileId = extractFileId(result.url as string);
+			if (fileId) activeDocStore.set(sessionId, { id: fileId, title: result.title as string ?? '' });
 		}
-
-		addToHistory(sessionId, `${command} → ${result?.summary ?? ''}`);
 
 		return res.json(result);
 	} catch (error) {
