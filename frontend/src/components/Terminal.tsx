@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   parseCommand as parseWorkspaceCommand,
+  extractGoogleWorkspaceFileIdFromUrl,
   getAuthStatus,
   getGoogleAuthUrl,
   getGmailOverview,
@@ -1175,7 +1176,19 @@ export function Terminal() {
     }
 
     try {
-      const result = await parseWorkspaceCommand(cmd);
+      // Always send full workspace state so the backend can clear stale session data
+      const hints = {
+        activeDocumentId: currentOpen?.app === 'docs' && currentOpen.url
+          ? (extractGoogleWorkspaceFileIdFromUrl(currentOpen.url) ?? '') : '',
+        activeDocumentTitle: currentOpen?.app === 'docs' ? currentOpen.title : '',
+        activeSpreadsheetId: currentOpen?.app === 'sheets' && currentOpen.url
+          ? (extractGoogleWorkspaceFileIdFromUrl(currentOpen.url) ?? '') : '',
+        activeSpreadsheetTitle: currentOpen?.app === 'sheets' ? currentOpen.title : '',
+        activePresentationId: currentOpen?.app === 'slides' && currentOpen.url
+          ? (extractGoogleWorkspaceFileIdFromUrl(currentOpen.url) ?? '') : '',
+        activePresentationTitle: currentOpen?.app === 'slides' ? currentOpen.title : '',
+      };
+      const result = await parseWorkspaceCommand(cmd, hints);
       const nextDoc = docFromWorkspaceResult(result, cmd);
       if (nextDoc) setOpenDoc(nextDoc);
       const ackAccent = nextDoc ? accentFor(nextDoc.app) : '#34A853';

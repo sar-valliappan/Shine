@@ -2,6 +2,22 @@ import type { WorkspaceResult } from '../hooks/useTerminal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
+/** Google Docs / Sheets / Slides file id from a standard `.../d/{id}/...` URL. */
+export function extractGoogleWorkspaceFileIdFromUrl(url: string | undefined): string | undefined {
+  if (!url || typeof url !== 'string') return undefined;
+  return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+}
+
+/** Sent with every parse request so the backend workspace matches the UI's open file. */
+export type ParseWorkspaceHints = {
+  activeDocumentId?: string;
+  activeDocumentTitle?: string;
+  activeSpreadsheetId?: string;
+  activeSpreadsheetTitle?: string;
+  activePresentationId?: string;
+  activePresentationTitle?: string;
+};
+
 async function parseJsonResponse(response: Response): Promise<any> {
   const text = await response.text();
   if (!text) return null;
@@ -13,12 +29,12 @@ async function parseJsonResponse(response: Response): Promise<any> {
   }
 }
 
-export const parseCommand = async (input: string): Promise<WorkspaceResult> => {
+export const parseCommand = async (input: string, hints?: ParseWorkspaceHints): Promise<WorkspaceResult> => {
   const response = await fetch(`${API_BASE_URL}/api/parse`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command: input })
+    body: JSON.stringify({ command: input, ...hints }),
   });
 
   const payload = await parseJsonResponse(response);
