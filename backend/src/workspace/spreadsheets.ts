@@ -145,7 +145,9 @@ async function callGeminiForSheets(prompt: string, apiKey: string): Promise<Shee
 	const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
 	const jsonStart = cleaned.indexOf('{');
 	if (jsonStart === -1) throw new Error('No JSON found in Gemini response');
-	const parsed = JSON.parse(sanitizeJson(cleaned.slice(jsonStart)));
+	const sanitized = sanitizeJson(cleaned.slice(jsonStart))
+		.replace(/,(\s*[}\]])/g, '$1');  // strip trailing commas Gemini sometimes emits
+	const parsed = JSON.parse(sanitized);
 
 	if (!parsed.intent) throw new Error('Gemini response missing intent field');
 	return parsed as SheetsIntent;
