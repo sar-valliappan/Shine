@@ -5,7 +5,27 @@ import {
 	deleteSlide,
 	editSlide,
 } from '../services/slidesService.js';
+import { parseCommandWithGemini } from '../services/gemini.js';
+import type { ActiveWorkspace } from './activeSession.js';
 import type { ParseRouteResult } from './types.js';
+
+// ── App-level entry point (called by app-router) ──────────────────────────
+// TODO: Replace parseCommandWithGemini call with a Slides-specific Gemini call
+// that receives the user command + full Slides API command list and returns
+// the exact sequence of API operations to run.
+export async function handleSlidesCommand(
+	command: string,
+	oauthClient: unknown,
+	active: ActiveWorkspace,
+	apiKey: string | undefined,
+): Promise<ParseRouteResult> {
+	const parsed = await parseCommandWithGemini(command, active);
+	const action = parsed.action;
+	if (action.action === 'edit_presentation' && !action.fileId && active.presentation) {
+		action.fileId = active.presentation.id;
+	}
+	return executePresentationAction(action as Extract<WorkspaceAction, { action: 'create_presentation' | 'edit_presentation' }>, oauthClient, apiKey);
+}
 
 type PresAction = Extract<WorkspaceAction, { action: 'create_presentation' | 'edit_presentation' }>;
 

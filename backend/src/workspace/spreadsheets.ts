@@ -1,6 +1,26 @@
 import { google } from 'googleapis';
 import type { WorkspaceAction } from '../types/actions.js';
+import { parseCommandWithGemini } from '../services/gemini.js';
+import type { ActiveWorkspace } from './activeSession.js';
 import type { ParseRouteResult } from './types.js';
+
+// ── App-level entry point (called by app-router) ──────────────────────────
+// TODO: Replace parseCommandWithGemini call with a Sheets-specific Gemini call
+// that receives the user command + full Sheets API command list and returns
+// the exact sequence of API operations to run.
+export async function handleSheetsCommand(
+	command: string,
+	oauthClient: unknown,
+	active: ActiveWorkspace,
+	_apiKey: string | undefined,
+): Promise<ParseRouteResult> {
+	const parsed = await parseCommandWithGemini(command, active);
+	const action = parsed.action;
+	if (action.action === 'edit_spreadsheet' && !action.fileId && active.spreadsheet) {
+		action.fileId = active.spreadsheet.id;
+	}
+	return executeSpreadsheetAction(action as Extract<WorkspaceAction, { action: 'create_spreadsheet' | 'edit_spreadsheet' }>, oauthClient);
+}
 
 type SheetAction = Extract<WorkspaceAction, { action: 'create_spreadsheet' | 'edit_spreadsheet' }>;
 
