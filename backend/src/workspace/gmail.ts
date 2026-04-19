@@ -21,6 +21,7 @@ function buildEditDraftBodyPrompt(command: string, active: ActiveWorkspace): str
 		`Subject: ${draft.subject || draft.title || '(untitled)'}`,
 		'Current message:',
 		draft.message || '(empty)',
+		'Edit policy: make the smallest possible change and keep all unchanged paragraphs verbatim.',
 		'',
 		'User change request:',
 		command,
