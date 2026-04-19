@@ -45,6 +45,8 @@ Row/column indexes are 0-based.
 { "op": "appendCells", "sheetId": 0,
   "values": [["row1col1", "row1col2"], ["row2col1", "row2col2"]] }
   → Appends new rows after the last row that contains data.
+  → USE THIS when the user wants to add a new record, entry, person, employee, item, or row with actual values.
+  → Do NOT use appendDimension for this — appendDimension only adds blank structural rows with no data.
 
 --- FIND & REPLACE ---
 
@@ -82,6 +84,7 @@ Row/column indexes are 0-based.
 
 { "op": "appendDimension", "sheetId": 0, "dimension": "ROWS", "length": 10 }
   → Appends empty rows or columns to the end of the sheet.
+  → Only use this when the user explicitly wants blank/empty rows. For adding data rows, use appendCells instead.
 
 { "op": "moveDimension", "sheetId": 0, "dimension": "ROWS",
   "startIndex": 3, "endIndex": 4, "destinationIndex": 0 }

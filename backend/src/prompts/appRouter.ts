@@ -13,7 +13,7 @@ calendar
 
 Routing guide:
 - docs: document, report, write, essay, summary, analysis, notes, memo, letter, proposal, page
-- sheets: spreadsheet, sheet, table, tracker, budget, grid, data, rows, columns, formula, log, chart
+- sheets: spreadsheet, sheet, table, tracker, budget, grid, data, rows, columns, formula, log, chart, bold, italic, format, color, highlight, border, align, sort, filter, freeze, merge, resize, font
 - slides: presentation, deck, slides, pitch, slideshow
 - gmail: email, mail, draft, send, message, compose, inbox
 - forms: form, survey, quiz, poll, questionnaire, feedback
