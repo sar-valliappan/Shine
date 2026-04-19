@@ -14,5 +14,10 @@ export async function handleFormsCommand(
 	apiKey: string | undefined,
 ): Promise<ParseRouteResult> {
 	const parsed = await parseCommandWithGemini(command, active);
+	if (parsed.action.action === 'share_file' && !parsed.action.fileId && active.form) {
+		parsed.action.fileId = active.form.id;
+		parsed.action.fileType = 'form';
+		parsed.action.title = active.form.title;
+	}
 	return executeWorkspaceAction(parsed.action, oauthClient, apiKey);
 }

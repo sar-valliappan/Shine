@@ -8,6 +8,7 @@ import {
 } from '../services/docsService.js';
 import { parseCommandWithGemini } from '../services/gemini.js';
 import type { ActiveWorkspace } from './activeSession.js';
+import { executeWorkspaceAction } from './executeWorkspaceAction.js';
 import type { ParseRouteResult } from './types.js';
 
 // ── App-level entry point (called by app-router) ──────────────────────────
@@ -22,6 +23,14 @@ export async function handleDocsCommand(
 ): Promise<ParseRouteResult> {
 	const parsed = await parseCommandWithGemini(command, active);
 	const action = parsed.action;
+	if (action.action === 'share_file') {
+		if (!action.fileId && active.document) {
+			action.fileId = active.document.id;
+			action.fileType = 'doc';
+			action.title = active.document.title;
+		}
+		return executeWorkspaceAction(action, oauthClient, apiKey);
+	}
 	if (action.action === 'edit_document' && !action.fileId && active.document) {
 		action.fileId = active.document.id;
 	}

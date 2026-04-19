@@ -18,7 +18,7 @@ function chooseAppFromActiveContext(command: string, active: ReturnType<typeof g
 	const isCreateIntent = /\b(create|new|start|generate|draft|compose|write|build|make)\b/.test(text);
 	if (isCreateIntent) return null;
 
-	const looksLikeEdit = /\b(edit|update|rewrite|change|revise|improve|polish|fix|add|remove|append|replace|delete|shorten|expand|reword|summarize|simplify)\b/.test(text);
+	const looksLikeEdit = /\b(edit|update|rewrite|change|revise|improve|polish|fix|add|remove|append|replace|delete|shorten|expand|reword|summarize|simplify|share|invite|collaborate)\b/.test(text);
 	if (!looksLikeEdit) return null;
 
 	const explicitAppMention = /\b(gmail|email|mail|draft|doc|document|sheet|spreadsheet|slide|slides|presentation|calendar|form|drive|file)\b/.test(text);
@@ -46,6 +46,9 @@ function chooseAppFromActiveContext(command: string, active: ReturnType<typeof g
 	}
 	if (active.presentation) {
 		return 'slides';
+	}
+	if (active.form) {
+		return 'forms';
 	}
 
 	return null;
@@ -95,6 +98,10 @@ async function syncActiveFileFromResult(
 				: (title ?? prev.presentation?.title ?? 'Untitled');
 		patch.presentation = { id: workspaceFileId, title: nextTitle };
 		patch.activeApp = 'slides';
+	}
+	if (workspaceFileId && actionName === 'create_form') {
+		patch.form = { id: workspaceFileId, title: title ?? prev.form?.title ?? 'Untitled' };
+		patch.activeApp = 'forms';
 	}
 	if (gmailDraftId && (actionName === 'create_draft' || actionName === 'edit_draft')) {
 		try {

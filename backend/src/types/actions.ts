@@ -14,6 +14,17 @@ export type EditDocumentOperation =
 export type WorkspaceAction =
 	| { action: 'create_document'; title: string; content_prompt: string; sections?: string[] }
 	| {
+			action: 'share_file';
+			fileId?: string;
+			fileUrl?: string;
+			fileType?: 'doc' | 'sheet' | 'slides' | 'form' | 'drive';
+			title?: string;
+			recipients: string[];
+			role?: 'reader' | 'commenter' | 'writer';
+			notify?: boolean;
+			message?: string;
+		}
+	| {
 			action: 'create_spreadsheet';
 			title: string;
 			headers: string[];
