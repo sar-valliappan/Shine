@@ -14,62 +14,76 @@ import {
 
 const router = Router();
 
-function chooseAppFromActiveContext(command: string, active: ReturnType<typeof getActiveWorkspace>): AppName | null {
-	const text = command.trim().toLowerCase();
-	const isCreateIntent = /\b(create|new|start|generate|draft|compose|write|build|make)\b/.test(text);
-	if (isCreateIntent) return null;
+const DRIVE_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
-	const looksLikeEdit = /\b(edit|update|rewrite|change|revise|improve|polish|fix|add|remove|append|replace|delete|shorten|expand|reword|summarize|simplify|share|invite|collaborate)\b/.test(text);
-	if (!looksLikeEdit) return null;
+/**
+ * Syncs the in-memory workspace with whatever file the UI has open.
+ * Critical for cross-origin setups (e.g. Vite :5173 → API :3001) where the
+ * express-session cookie may differ per request, so server-side workspace state
+ * set during 'create' may not be visible on the next 'edit' request.
+ */
+function applyClientWorkspaceHints(
+	sessionId: string,
+	body: {
+		activeDocumentId?: string;
+		activeDocumentTitle?: string;
+		activeSpreadsheetId?: string;
+		activeSpreadsheetTitle?: string;
+		activePresentationId?: string;
+		activePresentationTitle?: string;
+	},
+): void {
+	const prev = getActiveWorkspace(sessionId);
 
-	const explicitAppMention = /\b(gmail|email|mail|draft|doc|document|sheet|spreadsheet|slide|slides|presentation|calendar|form|drive|file)\b/.test(text);
-	if (explicitAppMention) return null;
-
-	if (active.activeApp === 'gmail' && active.gmailDraft) return 'gmail';
-	if (active.activeApp === 'calendar' && active.calendarEvent) return 'calendar';
-	if (active.activeApp === 'docs' && active.document) return 'docs';
-	if (active.activeApp === 'sheets' && active.spreadsheet) return 'sheets';
-	if (active.activeApp === 'slides' && active.presentation) return 'slides';
-
-	// Prefer the currently active Gmail draft for ambiguous edit requests.
-	if (active.gmailDraft) {
-		return 'gmail';
-	}
-	if (active.calendarEvent) {
-		return 'calendar';
-	}
-
-	if (active.document) {
-		return 'docs';
-	}
-	if (active.spreadsheet) {
-		return 'sheets';
-	}
-	if (active.presentation) {
-		return 'slides';
-	}
-	if (active.form) {
-		return 'forms';
+	// If the frontend sent the key (even empty), treat it as ground truth.
+	// Empty string means the user closed that file — clear stale session state.
+	if (typeof body.activeDocumentId === 'string') {
+		const docId = body.activeDocumentId.trim();
+		if (docId && DRIVE_FILE_ID_RE.test(docId)) {
+			const title =
+				typeof body.activeDocumentTitle === 'string' && body.activeDocumentTitle.trim()
+					? body.activeDocumentTitle.trim()
+					: prev.document?.id === docId ? prev.document.title : 'Untitled';
+			updateActiveWorkspace(sessionId, { document: { id: docId, title } });
+		} else {
+			updateActiveWorkspace(sessionId, { document: null });
+		}
 	}
 
-	return null;
+	if (typeof body.activeSpreadsheetId === 'string') {
+		const sheetId = body.activeSpreadsheetId.trim();
+		if (sheetId && DRIVE_FILE_ID_RE.test(sheetId)) {
+			const title =
+				typeof body.activeSpreadsheetTitle === 'string' && body.activeSpreadsheetTitle.trim()
+					? body.activeSpreadsheetTitle.trim()
+					: prev.spreadsheet?.id === sheetId ? prev.spreadsheet.title : 'Untitled';
+			updateActiveWorkspace(sessionId, { spreadsheet: { id: sheetId, title } });
+		} else {
+			updateActiveWorkspace(sessionId, { spreadsheet: null });
+		}
+	}
+
+	if (typeof body.activePresentationId === 'string') {
+		const presId = body.activePresentationId.trim();
+		if (presId && DRIVE_FILE_ID_RE.test(presId)) {
+			const title =
+				typeof body.activePresentationTitle === 'string' && body.activePresentationTitle.trim()
+					? body.activePresentationTitle.trim()
+					: prev.presentation?.id === presId ? prev.presentation.title : 'Untitled';
+			updateActiveWorkspace(sessionId, { presentation: { id: presId, title } });
+		} else {
+			updateActiveWorkspace(sessionId, { presentation: null });
+		}
+	}
 }
 
-async function syncActiveFileFromResult(
+function syncActiveFileFromResult(
 	sessionId: string,
 	actionName: string,
 	url: string | undefined,
 	title: string | undefined,
-	result: {
-		eventId?: string;
-		calendarId?: string;
-		start_time?: string;
-		end_time?: string;
-		location?: string;
-		description?: string;
-		fileType?: string;
-	},
-	oauthClient: unknown,
+	activeDocumentTitle?: string,
+	documentTitleHint?: string,
 ) {
 	const workspaceFileId = url ? extractFileIdFromWorkspaceUrl(url) : null;
 	const gmailDraftId = url ? extractGmailDraftIdFromUrl(url) : null;
@@ -79,11 +93,10 @@ async function syncActiveFileFromResult(
 
 	if (workspaceFileId && (actionName === 'create_document' || actionName === 'edit_document')) {
 		const nextTitle =
-			actionName === 'edit_document' && prev.document?.id === workspaceFileId
-				? prev.document.title
-				: (title ?? prev.document?.title ?? 'Untitled');
-		patch.document = { id: workspaceFileId, title: nextTitle };
-		patch.activeApp = 'docs';
+			actionName === 'edit_document' && prev.document?.id === id
+				? (activeDocumentTitle ?? documentTitleHint ?? prev.document.title)
+				: (activeDocumentTitle ?? documentTitleHint ?? title ?? prev.document?.title ?? 'Untitled');
+		patch.document = { id, title: nextTitle };
 	}
 	if (workspaceFileId && (actionName === 'create_spreadsheet' || actionName === 'edit_spreadsheet')) {
 		const nextTitle =
@@ -173,12 +186,24 @@ async function syncActiveFileFromResult(
 
 router.post('/', requireAuth, async (req: Request, res: Response) => {
 	try {
-		const { command } = req.body as { command?: string };
+		const body = req.body as {
+			command?: string;
+			activeDocumentId?: string;
+			activeDocumentTitle?: string;
+			activeSpreadsheetId?: string;
+			activeSpreadsheetTitle?: string;
+			activePresentationId?: string;
+			activePresentationTitle?: string;
+		};
+
+		const { command } = body;
 		if (!command || typeof command !== 'string' || !command.trim()) {
 			return res.status(400).json({ error: 'command is required' });
 		}
 
-		const sessionId = (req.session as any).id;
+		// req.sessionID is the correct express-session property (not req.session.id)
+		const sessionId = req.sessionID;
+		applyClientWorkspaceHints(sessionId, body);
 		const active = getActiveWorkspace(sessionId);
 		const explicitDriveLookup = await lookupDriveFilesByName(command.trim(), req.oauthClient, process.env.GEMINI_API_KEY);
 		if (explicitDriveLookup) {
@@ -192,9 +217,11 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		}
 
 		// Step 2: App-specific handler takes over
-		const result = await executeAppCommand(app, command.trim(), req.oauthClient, active, process.env.GEMINI_API_KEY);
+		const result = await executeAppCommand(app, command.trim(), req.oauthClient, active, process.env.GEMINI_API_KEY, sessionId);
 
-		await syncActiveFileFromResult(sessionId, result.action, result.url, result.title, result, req.oauthClient);
+		if (result?.url) {
+			syncActiveFileFromResult(sessionId, result.action, result.url, result.title, result.activeDocumentTitle, result.documentTitle);
+		}
 
 		return res.json(result);
 	} catch (error) {

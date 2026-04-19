@@ -1,5 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { google } from 'googleapis';
 import { commandParserPrompt } from '../prompts/commandParser.js';
+import { appRouterPrompt } from '../prompts/appRouter.js';
+import { extractDocumentContext } from './googleDocsBodyHelpers.js';
 import { buildAppRouterPrompt } from '../prompts/appRouter.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
@@ -106,12 +109,8 @@ function parseJsonPayload(text: string): WorkspaceAction {
 	return parsed;
 }
 
-export async function parseCommandWithGemini(
-	command: string,
-	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null, form: null, gmailDraft: null, calendarEvent: null, activeApp: null },
-): Promise<ParseResult> {
+async function generateParsedActionFromPrompt(fullPrompt: string): Promise<ParseResult> {
 	const apiKey = process.env.GEMINI_API_KEY;
-
 	if (!apiKey) {
 		return {
 			action: { action: 'clarify', question: 'The AI service is not configured. Please contact support.' },
@@ -120,11 +119,6 @@ export async function parseCommandWithGemini(
 	}
 
 	const client = new GoogleGenerativeAI(apiKey);
-
-	const contextBlock = formatActiveWorkspaceContext(active);
-
-	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
-
 	const configuredModel = process.env.GEMINI_MODEL?.trim();
 	const modelCandidates = configuredModel
 		? [configuredModel, ...DEFAULT_MODEL_CANDIDATES.filter((m) => m !== configuredModel)]
@@ -136,7 +130,7 @@ export async function parseCommandWithGemini(
 	for (const modelName of modelCandidates) {
 		try {
 			const model = client.getGenerativeModel({ model: modelName }, { apiVersion: 'v1beta' });
-			const result = await model.generateContent(prompt);
+			const result = await model.generateContent(fullPrompt);
 			text = result.response.text();
 			lastError = null;
 			break;
@@ -163,6 +157,53 @@ export async function parseCommandWithGemini(
 			action: { action: 'clarify', question: 'I understood your request but had trouble formatting it. Could you rephrase?' },
 			rawText: text,
 		};
+	}
+}
+
+export async function parseCommandWithGemini(
+	command: string,
+	active: ActiveWorkspace = { document: null, spreadsheet: null, presentation: null },
+): Promise<ParseResult> {
+	const contextBlock = formatActiveWorkspaceContext(active);
+	const prompt = `${commandParserPrompt}${contextBlock}\n\nUser command:\n${command}`;
+	return generateParsedActionFromPrompt(prompt);
+}
+
+/**
+ * Docs-specific parse: fetches the live document body, injects structured context so Gemini can
+ * resolve find_text / section_heading against real headings and indices. Falls back to the generic
+ * parser if no active doc or if the Docs API fetch fails.
+ */
+export async function parseDocsCommandWithContext(
+	command: string,
+	active: ActiveWorkspace,
+	oauthClient: unknown,
+): Promise<ParseResult> {
+	if (!active.document) return parseCommandWithGemini(command, active);
+	try {
+		const docs = google.docs({ version: 'v1', auth: oauthClient as any });
+		const res = await docs.documents.get({ documentId: active.document.id });
+		const extracted = extractDocumentContext(res.data.body as { content?: unknown[] }, active.document.title);
+
+		const docBlock = [
+			'The following is the live structure of the active document with exact text and API indices.',
+			'Before filling any field, read this structure and resolve every user reference against it.',
+			'"The title" = the TITLE paragraph text.',
+			'"The summary section" = the HEADING whose quoted text contains "Summary" — use delete_section with that exact heading text, not delete_text.',
+			'"Bold the Biology header" = style_text with find_text set to the exact HEADING text containing "Biology".',
+			'Never guess. find_text must be verbatim text that appears in the structure below.',
+			'',
+			'--- ACTIVE GOOGLE DOC BODY ---',
+			extracted.contextString,
+			'--- END DOCUMENT ---',
+		].join('\n');
+
+		const contextBlock = formatActiveWorkspaceContext(active);
+		const fullPrompt = `${commandParserPrompt}\n${docBlock}${contextBlock}\n\nUser command:\n${command}`;
+		return generateParsedActionFromPrompt(fullPrompt);
+	} catch (error) {
+		console.error('[gemini] parseDocsCommandWithContext: document fetch failed, fallback:', error);
+		return parseCommandWithGemini(command, active);
 	}
 }
 

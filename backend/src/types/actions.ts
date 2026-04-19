@@ -6,10 +6,18 @@ export type FormQuestion = {
 
 export type EditDocumentOperation =
 	| 'add_section'
+	| 'insert_section'
 	| 'append'
 	| 'replace_text'
 	| 'delete_text'
-	| 'insert_table';
+	| 'insert_table'
+	| 'style_text'
+	| 'set_font'
+	| 'insert_page_break'
+	| 'delete_section'
+	| 'rename_document'
+	| 'undo'
+	| 'rewrite_document';
 
 export type WorkspaceAction =
 	| { action: 'create_document'; title: string; content_prompt: string; sections?: string[] }
@@ -52,17 +60,29 @@ export type WorkspaceAction =
 			fileId?: string;
 			operation: EditDocumentOperation;
 			heading?: string;
-			/** Markdown or plain content for append / add_section */
 			content_prompt?: string;
-			/** For replace_text / delete_text */
 			find_text?: string;
 			replace_with?: string;
 			match_case?: boolean;
-			/** For insert_table */
 			table_rows?: number;
 			table_columns?: number;
 			table_headers?: string[];
 			table_data?: string[][];
+			/** style_text / set_font */
+			bold?: boolean;
+			italic?: boolean;
+			underline?: boolean;
+			strikethrough?: boolean;
+			font_family?: string;
+			font_size?: number;
+			/** delete_section */
+			section_heading?: string;
+			/** add_section / insert_section: insert before or after this heading (substring match); omit to append at end */
+			section_anchor?: string;
+			/** Placement relative to section_anchor; defaults to "after" when section_anchor is set */
+			section_placement?: 'before' | 'after';
+			/** rename_document */
+			new_title?: string;
 		}
 	| {
 			action: 'edit_presentation';
