@@ -196,17 +196,19 @@ Example: to target row 1 only, use startRow: 1, endRow: 2. To target column 2 on
 
 --- CHARTS ---
 
-{ "op": "addChart", "sheetId": 0,
-  "chartType": "COLUMN", "title": "Hours by Employee",
-  "dataStartRow": 0, "dataEndRow": 7,
-  "dataStartColumn": 0, "dataEndColumn": 6,
+{ "op": "addChart", "sheetId": <actual sheetId from Tabs>,
+  "chartType": "BAR", "title": "descriptive title",
+  "dataStartRow": 0, "dataEndRow": 8,
+  "dataStartColumn": 0, "dataEndColumn": 4,
   "anchorRow": 10, "anchorColumn": 0 }
   → Adds a chart. chartType: "BAR" | "COLUMN" | "LINE" | "PIE" | "SCATTER" | "AREA"
-  → dataStartColumn is the label/category column (e.g. employee names or dates).
-  → dataStartColumn+1 through dataEndColumn-1 are the data series columns.
-  → dataStartRow should be 0 (include headers so the chart labels them correctly).
-  → dataEndRow is the last row index + 1 (exclusive), covering all data rows.
-  → anchorRow/anchorColumn sets where the chart is placed on the sheet.
+  → dataStartColumn: the label/category column (e.g. names, dates). Column 0 unless told otherwise.
+  → dataEndColumn: EXCLUSIVE — set it to the last column you want as a series PLUS ONE.
+    If your series columns are indexes 1, 2, 3, set dataEndColumn=4. If only column 3, set dataEndColumn=4.
+    NEVER set dataEndColumn = dataStartColumn+1 — that produces zero series and an empty chart.
+  → dataStartRow: always 0 so the header row is included for series labels.
+  → dataEndRow: last data row index + 1 (exclusive). If data is in rows 1–6, set dataEndRow=7.
+  → anchorRow/anchorColumn: where the chart is placed on the sheet.
   → PIE charts only support a single data series (one value column).
 
 { "op": "deleteChart", "chartId": 1234567 }
@@ -238,7 +240,7 @@ RULES
 - CRITICAL — row vs column orientation: each person/student/employee occupies ONE ROW; each time period (day, month, etc.) is a COLUMN. When setting a value for every time period for one person (e.g. "nick studied 7 hours a day"), produce ONE updateCells operation with startRow = nick's row index, startColumn = first day column, and values = [[7, 7, 7, 7, 7]] — a single inner array with one value per day column. NEVER produce [[7], [7], [7], [7], [7]] (that writes down a column, not across a row).
 - CRITICAL — one person = one operation: if the user's command names ONE person, you must produce EXACTLY ONE updateCells operation. Before returning, count your updateCells operations — if you have more than one and the command is about a single person, you are reconstructing the full dataset. Delete all extra operations and keep only the row for the named person.
 - When updating a single row for a named person/student/employee, use updateCells targeting ONLY that one row at its exact 0-based index from the context. NEVER send multiple rows or reconstruct the full dataset.
-- CRITICAL — totals must use SUM formulas: when the user asks to update or compute totals, ALWAYS write a =SUM formula (e.g. =SUM(B3:F3)) using A1 notation targeting the day columns for that person's row. NEVER compute the sum yourself and enter a hardcoded number. The formula must reference only the day columns, not the total column itself.
+- CRITICAL — totals must use SUM formulas: when the user asks to update or compute totals, ALWAYS write a =SUM formula using A1 notation. NEVER compute the sum yourself and enter a hardcoded number. To find the correct formula: (1) identify the person's 0-based row index N from the context — their A1 row number is N+1; (2) identify the first and last data columns (e.g. Mon=col 1 → letter B, Fri=col 5 → letter F); (3) write =SUM(B{N+1}:F{N+1}). The SUM range must cover only the value columns, not the name column or the total column itself.
 - CRITICAL — charts are always intent edit: any request to "create", "make", "add", or "build" a chart, graph, bar graph, pie chart, etc. MUST use intent: edit with an addChart operation. NEVER use intent: create for a chart request. A chart lives inside an existing spreadsheet — it is never a new file. If a spreadsheet is currently open, treat all chart requests as edits to that spreadsheet.
 - CRITICAL: Never assume sheetId is 0. Always use the actual sheetId integer from the Tabs context.
 - Undo and redo are not supported by the Sheets API. If the user asks to undo/redo/revert, return { "intent": "edit", "operations": [] }.
