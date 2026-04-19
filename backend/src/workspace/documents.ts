@@ -6,7 +6,27 @@ import {
 	generateDocumentContent,
 	shiftDocRequestsToEnd,
 } from '../services/docsService.js';
+import { parseCommandWithGemini } from '../services/gemini.js';
+import type { ActiveWorkspace } from './activeSession.js';
 import type { ParseRouteResult } from './types.js';
+
+// ── App-level entry point (called by app-router) ──────────────────────────
+// TODO: Replace parseCommandWithGemini call with a Docs-specific Gemini call
+// that receives the user command + full Docs API command list and returns
+// the exact sequence of API operations to run.
+export async function handleDocsCommand(
+	command: string,
+	oauthClient: unknown,
+	active: ActiveWorkspace,
+	apiKey: string | undefined,
+): Promise<ParseRouteResult> {
+	const parsed = await parseCommandWithGemini(command, active);
+	const action = parsed.action;
+	if (action.action === 'edit_document' && !action.fileId && active.document) {
+		action.fileId = active.document.id;
+	}
+	return executeDocumentAction(action as Extract<WorkspaceAction, { action: 'create_document' | 'edit_document' }>, oauthClient, apiKey);
+}
 
 type DocAction = Extract<WorkspaceAction, { action: 'create_document' | 'edit_document' }>;
 

@@ -1,7 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { commandParserPrompt } from '../prompts/commandParser.js';
+import { appRouterPrompt } from '../prompts/appRouter.js';
 import type { ParseResult, WorkspaceAction } from '../types/actions.js';
 import type { ActiveWorkspace } from '../workspace/activeSession.js';
+import type { AppName } from '../workspace/app-router.js';
 
 function formatActiveWorkspaceContext(active: ActiveWorkspace): string {
 	const lines: string[] = [];
@@ -123,4 +125,33 @@ export async function parseCommandWithGemini(
 			rawText: text,
 		};
 	}
+}
+
+const VALID_APP_NAMES: AppName[] = ['docs', 'sheets', 'slides', 'gmail', 'forms', 'drive', 'calendar'];
+
+export async function routeToApp(command: string): Promise<AppName | null> {
+	const apiKey = process.env.GEMINI_API_KEY;
+	if (!apiKey) return null;
+
+	const client = new GoogleGenerativeAI(apiKey);
+	const prompt = `${appRouterPrompt}${command}`;
+
+	const configuredModel = process.env.GEMINI_MODEL?.trim();
+	const modelCandidates = configuredModel
+		? [configuredModel, ...DEFAULT_MODEL_CANDIDATES.filter((m) => m !== configuredModel)]
+		: [...DEFAULT_MODEL_CANDIDATES];
+
+	for (const modelName of modelCandidates) {
+		try {
+			const model = client.getGenerativeModel({ model: modelName }, { apiVersion: 'v1beta' });
+			const result = await model.generateContent(prompt);
+			const raw = result.response.text().trim().toLowerCase();
+			const matched = VALID_APP_NAMES.find((name) => raw.startsWith(name));
+			if (matched) return matched;
+		} catch (error) {
+			console.error(`[gemini:router] Model failed: ${modelName}`, error);
+		}
+	}
+
+	return null;
 }

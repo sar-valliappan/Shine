@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/authMiddleware.js';
-import { parseCommandWithGemini } from '../services/gemini.js';
+import { routeToApp } from '../services/gemini.js';
 import {
-	executeWorkspaceAction,
+	executeAppCommand,
 	extractFileIdFromWorkspaceUrl,
 	getActiveWorkspace,
 	updateActiveWorkspace,
@@ -56,25 +56,17 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 		const sessionId = (req.session as any).id;
 		const active = getActiveWorkspace(sessionId);
 
-		const parsed = await parseCommandWithGemini(command.trim(), active);
-
-		if (parsed.action.action === 'edit_document' && !parsed.action.fileId) {
-			if (!active.document) return res.status(400).json({ error: 'No active document. Create a document first.' });
-			parsed.action.fileId = active.document.id;
-		}
-		if (parsed.action.action === 'edit_spreadsheet' && !parsed.action.fileId) {
-			if (!active.spreadsheet) return res.status(400).json({ error: 'No active spreadsheet. Create one first.' });
-			parsed.action.fileId = active.spreadsheet.id;
-		}
-		if (parsed.action.action === 'edit_presentation' && !parsed.action.fileId) {
-			if (!active.presentation) return res.status(400).json({ error: 'No active presentation. Create one first.' });
-			parsed.action.fileId = active.presentation.id;
+		// Step 1: Gemini decides which app the user wants
+		const app = await routeToApp(command.trim());
+		if (!app) {
+			return res.status(400).json({ error: "I couldn't determine which app you want to use. Try mentioning docs, sheets, slides, gmail, forms, drive, or calendar." });
 		}
 
-		const result = await executeWorkspaceAction(parsed.action, req.oauthClient, process.env.GEMINI_API_KEY);
+		// Step 2: App-specific handler takes over
+		const result = await executeAppCommand(app, command.trim(), req.oauthClient, active, process.env.GEMINI_API_KEY);
 
-		if (result && 'url' in result && result.url) {
-			syncActiveFileFromResult(sessionId, parsed.action.action, result.url as string, result.title as string | undefined);
+		if (result?.url) {
+			syncActiveFileFromResult(sessionId, result.action, result.url, result.title);
 		}
 
 		return res.json(result);
